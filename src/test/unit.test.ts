@@ -3,9 +3,10 @@ import * as assert from 'node:assert';
 import { GitService } from '../git/gitService';
 import { AIService } from '../ai/aiService';
 import { SnapshotService } from '../snapshot/snapshotService';
+import { LinkedInClient } from '../linkedin/linkedinClient';
 import { GitCommitContext } from '../types';
 
-describe('2share Unit Tests - REQ-001, REQ-002 & REQ-003', () => {
+describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
   describe('GitService (REQ-001)', () => {
     it('debe inicializarse con el espacio de trabajo activo', () => {
       const gitService = new GitService(process.cwd());
@@ -124,6 +125,34 @@ describe('2share Unit Tests - REQ-001, REQ-002 & REQ-003', () => {
       assert.ok(snapshot.svgContent.includes('&gt;'));
       assert.ok(snapshot.svgContent.includes('&amp;&amp;'));
       assert.ok(snapshot.svgContent.includes('&quot;&lt;div&gt;&quot;'));
+    });
+  });
+
+  describe('LinkedInClient Configuration (REQ-005)', () => {
+    it('debe almacenar y recuperar tokens en SecretStorage de VS Code', async () => {
+      const storedSecrets: Record<string, string> = {};
+      const mockContext: any = {
+        secrets: {
+          get: async (key: string) => storedSecrets[key],
+          store: async (key: string, value: string) => {
+            storedSecrets[key] = value;
+          },
+          delete: async (key: string) => {
+            delete storedSecrets[key];
+          },
+        },
+      };
+
+      const client = new LinkedInClient(mockContext);
+      await client.saveAccessToken('test-token-12345');
+      await client.saveAuthorUrn('urn:li:person:abcdef');
+
+      assert.strictEqual(await client.getAccessToken(), 'test-token-12345');
+      assert.strictEqual(await client.getAuthorUrn(), 'urn:li:person:abcdef');
+
+      await client.clearCredentials();
+      assert.strictEqual(await client.getAccessToken(), undefined);
+      assert.strictEqual(await client.getAuthorUrn(), undefined);
     });
   });
 });
