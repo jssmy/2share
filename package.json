@@ -30,9 +30,9 @@
     "views": {
       "2share-view-container": [
         {
-          "id": "2share.mainView",
-          "name": "2share - Acciones Rápidas",
-          "type": "tree"
+          "id": "2share.sidebarView",
+          "name": "2share",
+          "type": "webview"
         }
       ]
     },

@@ -4,7 +4,7 @@ import { AIService } from './ai/aiService';
 import { SnapshotService } from './snapshot/snapshotService';
 import { PreviewPanel } from './webview/previewPanel';
 import { LinkedInClient } from './linkedin/linkedinClient';
-import { SidebarProvider } from './sidebar/sidebarProvider';
+import { SidebarWebviewProvider } from './sidebar/sidebarWebviewProvider';
 import { SnapshotTheme } from './types';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -13,9 +13,22 @@ export function activate(context: vscode.ExtensionContext) {
   const snapshotService = new SnapshotService();
   const linkedInClient = new LinkedInClient(context);
 
-  // Registrar panel lateral en la Activity Bar
-  const sidebarProvider = new SidebarProvider();
-  vscode.window.registerTreeDataProvider('2share.mainView', sidebarProvider);
+  // Registrar panel lateral Webview en la Activity Bar
+  const sidebarWebviewProvider = new SidebarWebviewProvider(
+    context.extensionUri,
+    linkedInClient
+  );
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      SidebarWebviewProvider.viewType,
+      sidebarWebviewProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+      }
+    )
+  );
 
   // Botón rápido en la barra de estado inferior
   const statusBarItem = vscode.window.createStatusBarItem(
