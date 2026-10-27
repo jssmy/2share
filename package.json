@@ -61,6 +61,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
+    "build": "npm run compile && npm run package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
