@@ -64,7 +64,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "test": "node --test dist/**/*.test.js || echo 'Pruebas listas'"
+    "test": "node -r ./test-setup.js --test out/test/**/*.test.js"
   },
   "dependencies": {
     "shiki": "^1.6.0"
