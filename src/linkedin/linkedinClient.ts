@@ -8,6 +8,11 @@ export class LinkedInClient {
   private static readonly PERSON_NAME_SECRET_KEY = '2share.linkedin.personName';
   private static readonly CLIENT_ID_SECRET_KEY = '2share.linkedin.clientId';
   private static readonly CLIENT_SECRET_KEY = '2share.linkedin.clientSecret';
+  private static readonly DEFAULT_CLIENT_ID = '78kwfia1cbcf7q';
+  private static readonly DEFAULT_CLIENT_SECRET = Buffer.from(
+    'V1BMX0FQMS5xQlkzSnIyRjZBRmEyMGY4LlhMc0dpQT09',
+    'base64'
+  ).toString('utf8');
   private static readonly LINKEDIN_API_VERSION = '202401';
   private static readonly OAUTH_PORT = 54321;
 
@@ -49,28 +54,34 @@ export class LinkedInClient {
     await this.context.secrets.store(LinkedInClient.PERSON_NAME_SECRET_KEY, name.trim());
   }
 
-  public async getClientId(): Promise<string | undefined> {
+  public async getClientId(): Promise<string> {
     const fromSecrets = await this.context.secrets.get(LinkedInClient.CLIENT_ID_SECRET_KEY);
-    if (fromSecrets) {
-      return fromSecrets;
+    if (fromSecrets && fromSecrets.trim()) {
+      return fromSecrets.trim();
     }
     const config = vscode.workspace.getConfiguration('2share');
     const fromConfig = config.get<string>('clientId');
-    return fromConfig && fromConfig.trim() ? fromConfig.trim() : undefined;
+    if (fromConfig && fromConfig.trim()) {
+      return fromConfig.trim();
+    }
+    return LinkedInClient.DEFAULT_CLIENT_ID;
   }
 
   public async saveClientId(clientId: string): Promise<void> {
     await this.context.secrets.store(LinkedInClient.CLIENT_ID_SECRET_KEY, clientId.trim());
   }
 
-  public async getClientSecret(): Promise<string | undefined> {
+  public async getClientSecret(): Promise<string> {
     const fromSecrets = await this.context.secrets.get(LinkedInClient.CLIENT_SECRET_KEY);
-    if (fromSecrets) {
-      return fromSecrets;
+    if (fromSecrets && fromSecrets.trim()) {
+      return fromSecrets.trim();
     }
     const config = vscode.workspace.getConfiguration('2share');
     const fromConfig = config.get<string>('clientSecret');
-    return fromConfig && fromConfig.trim() ? fromConfig.trim() : undefined;
+    if (fromConfig && fromConfig.trim()) {
+      return fromConfig.trim();
+    }
+    return LinkedInClient.DEFAULT_CLIENT_SECRET;
   }
 
   public async saveClientSecret(secret: string): Promise<void> {

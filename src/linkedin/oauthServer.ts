@@ -84,8 +84,8 @@ export class OAuthServer {
         reject(err);
       });
 
-      this.server.listen(this.port, '127.0.0.1', () => {
-        // Servidor escuchando en localhost
+      this.server.listen(this.port, () => {
+        // Servidor escuchando en puerto local
       });
 
       timeoutId = setTimeout(() => {
@@ -211,3 +211,4 @@ export class OAuthServer {
 </html>`;
   }
 }
+
