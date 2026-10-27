@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+out/**
+docs/**
+test-setup.js
+tsconfig.json
+*.vsix
+.DS_Store
+node_modules/**
