@@ -121,6 +121,16 @@ export class SnapshotService {
       }
     }
 
+    // Si es contenido plano de archivo (modo archivos), tomar las primeras líneas directamente
+    if (snippetLines.length === 0) {
+      const rawCode = lines
+        .filter((l) => !l.startsWith('diff --git') && !l.startsWith('+++') && !l.startsWith('---'))
+        .slice(0, 22);
+      if (rawCode.length > 0) {
+        snippetLines.push(...rawCode);
+      }
+    }
+
     const code =
       snippetLines.length > 0
         ? snippetLines.join('\n')

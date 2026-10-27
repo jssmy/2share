@@ -64,16 +64,28 @@ export class AIService {
     // Recortar diff representativo (máximo 4000 caracteres)
     const diffSample = (commitContext.unifiedDiff || '').slice(0, 4000);
 
-    const promptText = `Eres un experto en Developer Advocacy y redacción de contenido técnico de alto impacto para LinkedIn.
-Tu misión es transformar el siguiente commit de Git en una publicación profesional, educativa, concisa y atractiva.
+    const contextHighlight = commitContext.userContext
+      ? `\nContexto clave e instrucciones del autor (Prioridad Alta):
+"${commitContext.userContext}"
+(Instrucción clave: El autor ha provisto este contexto específico. Debes integrar sus aprendizajes, métricas o retos técnicos como el elemento central del post).`
+      : '';
 
-Información del Commit:
-- Mensaje: "${commitContext.message}"
+    const sourceLabel =
+      commitContext.mode === 'files'
+        ? 'Archivos del Proyecto seleccionados'
+        : 'Commits de Git seleccionados';
+
+    const promptText = `Eres un experto en Developer Advocacy y redacción de contenido técnico de alto impacto para LinkedIn.
+Tu misión es transformar el siguiente trabajo de desarrollo (${sourceLabel}) en una publicación profesional, educativa, concisa y atractiva.
+${contextHighlight}
+
+Información Técnica:
+- Descripción / Mensaje: "${commitContext.message}"
 - Autor: ${commitContext.author}
-- Archivos Modificados:
+- Archivos Involucrados:
 ${filesSummary}
 
-Muestra del Diff:
+Muestra del Diff / Código:
 ${diffSample}
 
 Estructura requerida de la publicación:
@@ -105,7 +117,7 @@ Nota de estilo:
 
   /**
    * Generador de fallback con plantilla en caso de que no haya IA disponible
-   * Permite al usuario continuar sin bloquearse (REQ-002 Escenario 3)
+   * Permite al usuario continuar sin bloquearse (REQ-002 Escenario 3 y 4)
    */
   public generateManualTemplate(commitContext: GitCommitContext): string {
     const fileList = commitContext.changedFiles
@@ -113,14 +125,15 @@ Nota de estilo:
       .map((f) => `• ${f.filePath}`)
       .join('\n');
 
-    return `🚀 Actualización de código: ${commitContext.message}
+    const customContextBlock = commitContext.userContext
+      ? `\n💡 Contexto & Reto destacado:\n${commitContext.userContext}\n`
+      : `\n💡 Reto técnico superado:\nDetalla aquí el principal desafío que encontraste al implementar estos cambios y cómo lo resolviste.\n`;
+
+    return `🚀 Actualización de código: ${commitContext.message.split('\n')[0]}
 
 Hoy estuve trabajando en una mejora importante en nuestro proyecto:
 ${fileList}
-
-💡 Reto técnico superado:
-Detalla aquí el principal desafío que encontraste al implementar estos cambios y cómo lo resolviste.
-
+${customContextBlock}
 ¿Cómo sueles abordar este tipo de problemas en tus proyectos? Me encantaría leer sus experiencias en los comentarios. 👇
 
 #SoftwareEngineering #CleanCode #Developer #Git #TechCommunity`;

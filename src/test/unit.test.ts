@@ -31,6 +31,45 @@ describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
       assert.ok(commitContext.shortHash);
       assert.ok(Array.isArray(commitContext.changedFiles));
     });
+
+    it('debe consolidar múltiples commits en un solo contexto (REQ-001 Escenario 4)', async () => {
+      const gitService = new GitService(process.cwd());
+      const commits = await gitService.getRecentCommits(3);
+      if (commits.length >= 2) {
+        const hashes = [commits[0].hash, commits[1].hash];
+        const multiContext = await gitService.getMultiCommitContext(hashes, 'Métrica: +35% velocidad');
+
+        assert.strictEqual(multiContext.mode, 'commits');
+        assert.ok(multiContext.selectedHashes && multiContext.selectedHashes.length === 2);
+        assert.strictEqual(multiContext.userContext, 'Métrica: +35% velocidad');
+        assert.ok(multiContext.message.includes(commits[0].shortHash));
+        assert.ok(multiContext.message.includes(commits[1].shortHash));
+        assert.ok(Array.isArray(multiContext.changedFiles));
+      }
+    });
+
+    it('debe extraer contexto a partir de archivos seleccionados (REQ-001 Escenario 5)', async () => {
+      const gitService = new GitService(process.cwd());
+      const filesContext = await gitService.getFilesContext(
+        ['package.json', 'README.md'],
+        'Refactorización de configuración'
+      );
+
+      assert.strictEqual(filesContext.mode, 'files');
+      assert.strictEqual(filesContext.userContext, 'Refactorización de configuración');
+      assert.ok(filesContext.selectedFiles && filesContext.selectedFiles.length === 2);
+      assert.ok(filesContext.message.includes('package.json'));
+      assert.ok(filesContext.changedFiles.length >= 1);
+    });
+
+    it('debe listar archivos de workspace o git status (REQ-001 Escenario 5)', async () => {
+      const gitService = new GitService(process.cwd());
+      const files = await gitService.getWorkspaceFiles();
+      assert.ok(Array.isArray(files));
+      assert.ok(files.length > 0);
+      assert.ok(files[0].relativePath);
+      assert.ok(files[0].status);
+    });
   });
 
   describe('AIService Manual Template (REQ-002)', () => {
@@ -58,6 +97,29 @@ describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
       assert.ok(template.includes('src/webview/panel.ts'));
       assert.ok(template.includes('#SoftwareEngineering'));
       assert.ok(template.includes('Reto técnico superado'));
+    });
+
+    it('debe incorporar el userContext personalizado en la plantilla (REQ-002 Escenario 4)', () => {
+      const mockContextWithUserContext: GitCommitContext = {
+        hash: '8888888',
+        shortHash: '8888888',
+        message: 'perf: optimize database query cache',
+        author: 'Joset Manihuari',
+        date: '2026-10-27',
+        userContext: 'Redujimos la latencia de 1200ms a 45ms usando Redis con TTL dinámico',
+        changedFiles: [
+          {
+            filePath: 'src/db/cache.ts',
+            additions: 25,
+            deletions: 5,
+            patch: '',
+          },
+        ],
+      };
+
+      const template = aiService.generateManualTemplate(mockContextWithUserContext);
+      assert.ok(template.includes('Redujimos la latencia de 1200ms a 45ms'));
+      assert.ok(template.includes('Contexto & Reto destacado'));
     });
   });
 
@@ -96,6 +158,32 @@ describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
       assert.strictEqual(snippet.fileName, 'service.ts');
       assert.strictEqual(snippet.language, 'typescript');
       assert.ok(snippet.code.includes('authenticateUser'));
+    });
+
+    it('debe extraer fragmento de código plano en modo archivos sin prefijos de diff', () => {
+      const mockFileContext: GitCommitContext = {
+        hash: 'workspace-files',
+        shortHash: 'Archivos',
+        message: 'Trabajo en archivos: config.ts',
+        author: 'Joset Manihuari',
+        date: '2026-10-27',
+        mode: 'files',
+        changedFiles: [
+          {
+            filePath: 'src/config.ts',
+            additions: 10,
+            deletions: 0,
+            patch: `export const API_URL = "https://api.2share.dev";
+export const TIMEOUT = 5000;
+export function getConfig() { return { API_URL, TIMEOUT }; }`,
+          },
+        ],
+      };
+
+      const snippet = snapshotService.extractBestSnippet(mockFileContext);
+      assert.strictEqual(snippet.fileName, 'config.ts');
+      assert.strictEqual(snippet.language, 'typescript');
+      assert.ok(snippet.code.includes('API_URL'));
     });
 
     it('debe generar un SVG estilizado con ventana macOS y tema Nord', () => {

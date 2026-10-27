@@ -23,6 +23,10 @@ export interface GitCommitContext {
   date: string;
   changedFiles: GitFileChange[];
   unifiedDiff?: string;
+  mode?: 'commits' | 'files';
+  userContext?: string;
+  selectedHashes?: string[];
+  selectedFiles?: string[];
 }
 
 export type SnapshotTheme = 'nord' | 'one-dark-pro' | 'github-dark' | 'dracula';

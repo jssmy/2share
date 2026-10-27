@@ -5,7 +5,7 @@ import { SnapshotService } from './snapshot/snapshotService';
 import { PreviewPanel } from './webview/previewPanel';
 import { LinkedInClient } from './linkedin/linkedinClient';
 import { SidebarWebviewProvider } from './sidebar/sidebarWebviewProvider';
-import { SnapshotTheme } from './types';
+import { SnapshotTheme, GitCommitContext } from './types';
 
 export function activate(context: vscode.ExtensionContext) {
   const gitService = new GitService();
@@ -16,7 +16,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Registrar panel lateral Webview en la Activity Bar
   const sidebarWebviewProvider = new SidebarWebviewProvider(
     context.extensionUri,
-    linkedInClient
+    linkedInClient,
+    gitService
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -105,13 +106,43 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(configCommand);
 
-  // Comando Principal: Crear Post
+  // Comando Principal: Crear Post (soporta invocación directa desde panel lateral o wizard guiado)
   const createPostCommand = vscode.commands.registerCommand(
     '2share.createPost',
-    async () => {
+    async (options?: {
+      mode?: 'commits' | 'files';
+      selectedHashes?: string[];
+      selectedFiles?: string[];
+      userContext?: string;
+    }) => {
       try {
-        // Paso 1: Selección y extracción del commit (REQ-001)
-        const commitContext = await gitService.pickCommit();
+        let commitContext: GitCommitContext | undefined;
+
+        if (
+          options &&
+          options.mode === 'commits' &&
+          options.selectedHashes &&
+          options.selectedHashes.length > 0
+        ) {
+          commitContext = await gitService.getMultiCommitContext(
+            options.selectedHashes,
+            options.userContext
+          );
+        } else if (
+          options &&
+          options.mode === 'files' &&
+          options.selectedFiles &&
+          options.selectedFiles.length > 0
+        ) {
+          commitContext = await gitService.getFilesContext(
+            options.selectedFiles,
+            options.userContext
+          );
+        } else {
+          // Si no se pasaron opciones (se invocó desde paleta de comandos o menú), lanzar wizard
+          commitContext = await gitService.promptPostCreation();
+        }
+
         if (!commitContext) {
           return;
         }
@@ -120,7 +151,7 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: '2share: Procesando commit para LinkedIn...',
+            title: '2share: Procesando contenido para LinkedIn...',
             cancellable: false,
           },
           async (progress) => {
