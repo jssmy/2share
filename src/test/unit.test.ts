@@ -2,9 +2,10 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { GitService } from '../git/gitService';
 import { AIService } from '../ai/aiService';
+import { SnapshotService } from '../snapshot/snapshotService';
 import { GitCommitContext } from '../types';
 
-describe('2share Unit Tests - REQ-001 & REQ-002', () => {
+describe('2share Unit Tests - REQ-001, REQ-002 & REQ-003', () => {
   describe('GitService (REQ-001)', () => {
     it('debe inicializarse con el espacio de trabajo activo', () => {
       const gitService = new GitService(process.cwd());
@@ -56,6 +57,73 @@ describe('2share Unit Tests - REQ-001 & REQ-002', () => {
       assert.ok(template.includes('src/webview/panel.ts'));
       assert.ok(template.includes('#SoftwareEngineering'));
       assert.ok(template.includes('Reto técnico superado'));
+    });
+  });
+
+  describe('SnapshotService (REQ-003)', () => {
+    const snapshotService = new SnapshotService();
+
+    it('debe extraer el mejor snippet de código de un GitCommitContext', () => {
+      const mockContext: GitCommitContext = {
+        hash: 'a1b2c3d4e5f6',
+        shortHash: 'a1b2c3d',
+        message: 'feat: add user authentication handler',
+        author: 'Joset Manihuari',
+        date: '2026-10-27',
+        changedFiles: [
+          {
+            filePath: 'package-lock.json',
+            additions: 100,
+            deletions: 10,
+            patch: '+ "version": "1.0.0"',
+          },
+          {
+            filePath: 'src/auth/service.ts',
+            additions: 15,
+            deletions: 2,
+            patch: `@@ -1,5 +1,12 @@
+ import { Token } from './types';
++export async function authenticateUser(token: string): Promise<boolean> {
+  const isValid = token.length > 10;
+  return isValid;
+ }`,
+          },
+        ],
+      };
+
+      const snippet = snapshotService.extractBestSnippet(mockContext);
+      assert.strictEqual(snippet.fileName, 'service.ts');
+      assert.strictEqual(snippet.language, 'typescript');
+      assert.ok(snippet.code.includes('authenticateUser'));
+    });
+
+    it('debe generar un SVG estilizado con ventana macOS y tema Nord', () => {
+      const snapshot = snapshotService.generateSnapshot(
+        'example.ts',
+        'typescript',
+        'const greeting = "Hello 2share";',
+        'nord'
+      );
+
+      assert.strictEqual(snapshot.theme, 'nord');
+      assert.strictEqual(snapshot.mimeType, 'image/svg+xml');
+      assert.ok(snapshot.svgContent.includes('<svg'));
+      assert.ok(snapshot.svgContent.includes('example.ts'));
+      assert.ok(snapshot.svgContent.includes('#ff5f56'));
+      assert.ok(snapshot.svgContent.includes('#ffbd2e'));
+      assert.ok(snapshot.svgContent.includes('#27c93f'));
+      assert.ok(snapshot.dataUri.startsWith('data:image/svg+xml;base64,'));
+    });
+
+    it('debe escapar correctamente caracteres XML/HTML peligrosos en el SVG', () => {
+      const dangerousCode = 'if (a < 5 && b > 10) { const tag = "<div>"; }';
+      const snapshot = snapshotService.generateSnapshot('safe.ts', 'typescript', dangerousCode, 'dracula');
+
+      assert.ok(!snapshot.svgContent.includes('<div>'));
+      assert.ok(snapshot.svgContent.includes('&lt;'));
+      assert.ok(snapshot.svgContent.includes('&gt;'));
+      assert.ok(snapshot.svgContent.includes('&amp;&amp;'));
+      assert.ok(snapshot.svgContent.includes('&quot;&lt;div&gt;&quot;'));
     });
   });
 });
