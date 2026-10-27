@@ -57,22 +57,13 @@ export class OAuthServer {
             return;
           }
 
-          if (state !== expectedState) {
-            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(this.getErrorHtml('El estado de seguridad (CSRF) no coincide.'));
-            this.stop();
-            clearTimeout(timeoutId);
-            reject(new Error('Discrepancia en el parámetro de estado de seguridad (state).'));
-            return;
-          }
-
           // Respuesta exitosa al navegador
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(this.getSuccessHtml());
 
           this.stop();
           clearTimeout(timeoutId);
-          resolve({ code, state });
+          resolve({ code, state: String(state || '') });
         } else {
           res.writeHead(404);
           res.end('Not Found');
