@@ -7,24 +7,47 @@
   "engines": {
     "vscode": "^1.90.0"
   },
+  "icon": "media/icon.png",
   "categories": [
     "Other",
     "Programming Languages",
     "Machine Learning"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "2share-view-container",
+          "title": "2share",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "2share-view-container": [
+        {
+          "id": "2share.mainView",
+          "name": "2share - Acciones Rápidas",
+          "type": "tree"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "2share.createPost",
         "title": "2share: Crear Post para LinkedIn desde Commit",
-        "category": "2share"
+        "category": "2share",
+        "icon": "$(send)"
       },
       {
         "command": "2share.configureLinkedIn",
         "title": "2share: Configurar Cuenta de LinkedIn",
-        "category": "2share"
+        "category": "2share",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -34,6 +57,12 @@
         },
         {
           "command": "2share.configureLinkedIn"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "2share.createPost",
+          "group": "navigation"
         }
       ]
     },
