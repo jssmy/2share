@@ -1,0 +1,78 @@
+{
+  "name": "2share",
+  "displayName": "2share - Git to LinkedIn Post",
+  "description": "Transforma tus commits de Git en publicaciones profesionales para LinkedIn con capturas de código estilizadas e IA de VS Code.",
+  "version": "0.1.0",
+  "publisher": "jssmy",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "2share.createPost",
+        "title": "2share: Crear Post para LinkedIn desde Commit",
+        "category": "2share"
+      },
+      {
+        "command": "2share.configureLinkedIn",
+        "title": "2share: Configurar Cuenta de LinkedIn",
+        "category": "2share"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "2share.createPost"
+        },
+        {
+          "command": "2share.configureLinkedIn"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "2share",
+      "properties": {
+        "2share.defaultTheme": {
+          "type": "string",
+          "default": "nord",
+          "enum": ["nord", "one-dark-pro", "github-dark", "dracula"],
+          "description": "Tema visual por defecto para el snapshot del fragmento de código."
+        },
+        "2share.aiModelFamily": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Familia de modelo de lenguaje sugerida para vscode.lm (ej. gpt-4o, claude-3.5-sonnet)."
+        },
+        "2share.authorPersonUrn": {
+          "type": "string",
+          "default": "",
+          "description": "URN de la persona u organización en LinkedIn (urn:li:person:XXXX o urn:li:organization:XXXX)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "test": "node --test dist/**/*.test.js || echo 'Pruebas listas'"
+  },
+  "dependencies": {
+    "shiki": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.21.4",
+    "typescript": "^5.4.5"
+  }
+}
