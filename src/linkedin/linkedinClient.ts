@@ -1,155 +1,268 @@
 import * as vscode from 'vscode';
 import { LinkedInPublishResult } from '../types';
+import { OAuthServer } from './oauthServer';
 
 export class LinkedInClient {
   private static readonly TOKEN_SECRET_KEY = '2share.linkedin.token';
   private static readonly PERSON_URN_SECRET_KEY = '2share.linkedin.personUrn';
+  private static readonly PERSON_NAME_SECRET_KEY = '2share.linkedin.personName';
+  private static readonly CLIENT_ID_SECRET_KEY = '2share.linkedin.clientId';
+  private static readonly CLIENT_SECRET_KEY = '2share.linkedin.clientSecret';
   private static readonly LINKEDIN_API_VERSION = '202401';
+  private static readonly OAUTH_PORT = 54321;
 
   constructor(private context: vscode.ExtensionContext) {}
 
   /**
    * Obtiene el token de acceso guardado en el SecretStorage de VS Code
-   * Cumple con REQ-005 Escenario 1
    */
   public async getAccessToken(): Promise<string | undefined> {
     return await this.context.secrets.get(LinkedInClient.TOKEN_SECRET_KEY);
   }
 
-  /**
-   * Guarda el token de acceso cifrado en el SecretStorage de VS Code
-   */
   public async saveAccessToken(token: string): Promise<void> {
     await this.context.secrets.store(LinkedInClient.TOKEN_SECRET_KEY, token.trim());
   }
 
-  /**
-   * Obtiene el URN del autor configurado (persona u organización)
-   */
   public async getAuthorUrn(): Promise<string | undefined> {
-    // 1. Verificar si está en secrets
     const savedUrn = await this.context.secrets.get(LinkedInClient.PERSON_URN_SECRET_KEY);
     if (savedUrn) {
       return savedUrn;
     }
-
-    // 2. Verificar configuración de settings
     const config = vscode.workspace.getConfiguration('2share');
     const configUrn = config.get<string>('authorPersonUrn');
     if (configUrn && configUrn.trim()) {
       return configUrn.trim();
     }
-
     return undefined;
   }
 
-  /**
-   * Guarda el URN del autor en secrets
-   */
   public async saveAuthorUrn(urn: string): Promise<void> {
     await this.context.secrets.store(LinkedInClient.PERSON_URN_SECRET_KEY, urn.trim());
   }
 
-  /**
-   * Elimina las credenciales guardadas (Cerrar sesión)
-   */
+  public async getAuthorName(): Promise<string | undefined> {
+    return await this.context.secrets.get(LinkedInClient.PERSON_NAME_SECRET_KEY);
+  }
+
+  public async saveAuthorName(name: string): Promise<void> {
+    await this.context.secrets.store(LinkedInClient.PERSON_NAME_SECRET_KEY, name.trim());
+  }
+
+  public async getClientId(): Promise<string | undefined> {
+    const fromSecrets = await this.context.secrets.get(LinkedInClient.CLIENT_ID_SECRET_KEY);
+    if (fromSecrets) {
+      return fromSecrets;
+    }
+    const config = vscode.workspace.getConfiguration('2share');
+    const fromConfig = config.get<string>('clientId');
+    return fromConfig && fromConfig.trim() ? fromConfig.trim() : undefined;
+  }
+
+  public async saveClientId(clientId: string): Promise<void> {
+    await this.context.secrets.store(LinkedInClient.CLIENT_ID_SECRET_KEY, clientId.trim());
+  }
+
+  public async getClientSecret(): Promise<string | undefined> {
+    const fromSecrets = await this.context.secrets.get(LinkedInClient.CLIENT_SECRET_KEY);
+    if (fromSecrets) {
+      return fromSecrets;
+    }
+    const config = vscode.workspace.getConfiguration('2share');
+    const fromConfig = config.get<string>('clientSecret');
+    return fromConfig && fromConfig.trim() ? fromConfig.trim() : undefined;
+  }
+
+  public async saveClientSecret(secret: string): Promise<void> {
+    await this.context.secrets.store(LinkedInClient.CLIENT_SECRET_KEY, secret.trim());
+  }
+
   public async clearCredentials(): Promise<void> {
     await this.context.secrets.delete(LinkedInClient.TOKEN_SECRET_KEY);
     await this.context.secrets.delete(LinkedInClient.PERSON_URN_SECRET_KEY);
+    await this.context.secrets.delete(LinkedInClient.PERSON_NAME_SECRET_KEY);
   }
 
   /**
-   * Solicita al usuario autenticarse o ingresar sus credenciales
-   * Cumple con REQ-005 Escenarios 1 y 4
+   * Flujo OAuth2 completo:
+   * 1. Abre el navegador web en LinkedIn para que el usuario autorice.
+   * 2. El navegador redirige al servidor local (http://127.0.0.1:54321/callback).
+   * 3. Se intercambia el código por el Access Token y se guarda en SecretStorage.
+   * 4. Retorna a VS Code con la sesión iniciada.
    */
-  public async promptAuthentication(): Promise<boolean> {
-    const action = await vscode.window.showInformationMessage(
-      '2share: Configuración de cuenta de LinkedIn. ¿Deseas ingresar tu Access Token de OAuth2?',
-      'Ingresar Token',
-      'Ver Guía de Creación de App'
-    );
+  public async loginWithBrowser(): Promise<boolean> {
+    // 1. Obtener o solicitar Client ID y Client Secret
+    let clientId = await this.getClientId();
+    let clientSecret = await this.getClientSecret();
 
-    if (action === 'Ver Guía de Creación de App') {
-      await vscode.env.openExternal(
-        vscode.Uri.parse('https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow')
+    if (!clientId || !clientSecret) {
+      const setupChoice = await vscode.window.showInformationMessage(
+        '2share: Para autenticarte mediante el navegador se requiere el Client ID y Client Secret de tu App de LinkedIn (Redirect URI: http://127.0.0.1:54321/callback).',
+        'Configurar Credenciales',
+        'Crear App en LinkedIn'
       );
-    }
 
-    if (action === 'Ingresar Token' || action === 'Ver Guía de Creación de App') {
-      const token = await vscode.window.showInputBox({
-        title: '2share: Token de Acceso OAuth2 de LinkedIn',
-        prompt: 'Pega tu token de acceso OAuth2 (con scopes: w_member_social, openid, profile)',
-        password: true,
-        ignoreFocusOut: true,
-      });
+      if (setupChoice === 'Crear App en LinkedIn') {
+        await vscode.env.openExternal(
+          vscode.Uri.parse('https://www.linkedin.com/developers/apps/new')
+        );
+      }
 
-      if (!token || !token.trim()) {
+      if (setupChoice !== 'Configurar Credenciales' && setupChoice !== 'Crear App en LinkedIn') {
         return false;
       }
 
-      let authorUrn = await this.getAuthorUrn();
-      if (!authorUrn) {
-        // Intentar obtener el perfil del usuario mediante la API de userInfo
-        try {
-          const profileUrn = await this.fetchUserUrn(token.trim());
-          if (profileUrn) {
-            authorUrn = profileUrn;
-          }
-        } catch {
-          // Si falla, pedirlo al usuario
+      if (!clientId) {
+        const inputId = await vscode.window.showInputBox({
+          title: 'LinkedIn OAuth - Client ID',
+          prompt: 'Ingresa el Client ID de tu App de LinkedIn',
+          placeHolder: 'Ej: 77xxxxxxxxxxxx',
+          ignoreFocusOut: true,
+        });
+        if (!inputId || !inputId.trim()) {
+          return false;
         }
-
-        if (!authorUrn) {
-          const manualUrn = await vscode.window.showInputBox({
-            title: '2share: LinkedIn Person URN',
-            prompt: 'Ingresa tu identificador URN de LinkedIn (ej: urn:li:person:abcdef123)',
-            placeHolder: 'urn:li:person:XXXXXX',
-            ignoreFocusOut: true,
-          });
-          if (manualUrn && manualUrn.trim()) {
-            authorUrn = manualUrn.trim();
-          }
-        }
+        clientId = inputId.trim();
+        await this.saveClientId(clientId);
       }
 
-      await this.saveAccessToken(token);
-      if (authorUrn) {
-        await this.saveAuthorUrn(authorUrn);
+      if (!clientSecret) {
+        const inputSecret = await vscode.window.showInputBox({
+          title: 'LinkedIn OAuth - Client Secret',
+          prompt: 'Ingresa el Client Secret de tu App de LinkedIn',
+          password: true,
+          ignoreFocusOut: true,
+        });
+        if (!inputSecret || !inputSecret.trim()) {
+          return false;
+        }
+        clientSecret = inputSecret.trim();
+        await this.saveClientSecret(clientSecret);
       }
-
-      vscode.window.showInformationMessage('2share: ¡Credenciales de LinkedIn configuradas con éxito!');
-      return true;
     }
 
-    return false;
+    // 2. Levantar servidor local en el puerto designado
+    const oauthServer = new OAuthServer(LinkedInClient.OAUTH_PORT);
+    const redirectUri = oauthServer.getRedirectUri();
+    const state = oauthServer.generateState();
+    const scopes = encodeURIComponent('openid profile w_member_social');
+
+    const authorizationUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&state=${state}&scope=${scopes}`;
+
+    return await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: '2share: Esperando autorización en el navegador...',
+        cancellable: true,
+      },
+      async (progress, token) => {
+        token.onCancellationRequested(() => {
+          oauthServer.stop();
+        });
+
+        // 3. Abrir el navegador hacia LinkedIn
+        progress.report({ message: 'Abriendo navegador para iniciar sesión con LinkedIn...' });
+        await vscode.env.openExternal(vscode.Uri.parse(authorizationUrl));
+
+        try {
+          // 4. Esperar el código desde el navegador
+          const authResult = await oauthServer.waitForAuthorizationCode(state);
+
+          progress.report({ message: 'Intercambiando código de autorización por token...' });
+
+          // 5. Intercambiar code por Access Token (POST a LinkedIn OAuth)
+          const tokenBody = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: authResult.code,
+            redirect_uri: redirectUri,
+            client_id: clientId,
+            client_secret: clientSecret,
+          });
+
+          const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: tokenBody.toString(),
+          });
+
+          if (!tokenResponse.ok) {
+            const errText = await tokenResponse.text();
+            throw new Error(`Fallo al obtener token (${tokenResponse.status}): ${errText}`);
+          }
+
+          const tokenData: any = await tokenResponse.json();
+          const accessToken = tokenData.access_token;
+
+          if (!accessToken) {
+            throw new Error('La respuesta de LinkedIn no contenía un token de acceso.');
+          }
+
+          // 6. Obtener información del usuario (sub y nombre)
+          let authorUrn: string | undefined;
+          let authorName: string | undefined;
+
+          try {
+            const userRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (userRes.ok) {
+              const userData: any = await userRes.json();
+              if (userData.sub) {
+                authorUrn = `urn:li:person:${userData.sub}`;
+              }
+              if (userData.name) {
+                authorName = userData.name;
+              }
+            }
+          } catch {
+            // Ignorar y solicitar URN si no viene
+          }
+
+          if (!authorUrn) {
+            authorUrn = await vscode.window.showInputBox({
+              title: '2share: LinkedIn Person URN',
+              prompt: 'Ingresa tu identificador URN de LinkedIn (ej: urn:li:person:XXXXXX)',
+              placeHolder: 'urn:li:person:XXXXXX',
+              ignoreFocusOut: true,
+            });
+          }
+
+          // 7. Guardar en SecretStorage de VS Code
+          await this.saveAccessToken(accessToken);
+          if (authorUrn) {
+            await this.saveAuthorUrn(authorUrn);
+          }
+          if (authorName) {
+            await this.saveAuthorName(authorName);
+          }
+
+          vscode.window.showInformationMessage(
+            `🎉 ¡Conectado exitosamente con LinkedIn${authorName ? ` (${authorName})` : ''}!`
+          );
+          return true;
+        } catch (error: any) {
+          vscode.window.showErrorMessage(`2share: Error de autenticación: ${error.message}`);
+          return false;
+        } finally {
+          oauthServer.stop();
+        }
+      }
+    );
   }
 
   /**
-   * Consulta el sub/id del usuario autenticado vía UserInfo de LinkedIn
+   * Método de autenticación interactivo (utiliza el flujo de navegador)
    */
-  private async fetchUserUrn(token: string): Promise<string | undefined> {
-    try {
-      const res = await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (res.ok) {
-        const data: any = await res.json();
-        if (data.sub) {
-          return `urn:li:person:${data.sub}`;
-        }
-      }
-    } catch {
-      // Ignorar fallback
-    }
-    return undefined;
+  public async promptAuthentication(): Promise<boolean> {
+    return await this.loginWithBrowser();
   }
 
   /**
    * Inicializa la carga de imagen en LinkedIn Assets API y sube el archivo
-   * Cumple con REQ-005 Escenario 2
    */
   public async uploadImage(imageBuffer: Buffer, mimeType = 'image/png'): Promise<string> {
     const token = await this.getAccessToken();
@@ -159,7 +272,6 @@ export class LinkedInClient {
       throw new Error('No se han configurado las credenciales de LinkedIn.');
     }
 
-    // 1. Inicializar carga
     const initResponse = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
       method: 'POST',
       headers: {
@@ -191,7 +303,6 @@ export class LinkedInClient {
       throw new Error('La respuesta de LinkedIn no contenía una URL de subida válida.');
     }
 
-    // 2. Subir buffer binario de la imagen
     const uploadResponse = await fetch(uploadUrl, {
       method: 'PUT',
       headers: {
@@ -211,7 +322,6 @@ export class LinkedInClient {
 
   /**
    * Crea y publica el post en LinkedIn
-   * Cumple con REQ-005 Escenario 3
    */
   public async createPost(commentary: string, imageUrn?: string): Promise<LinkedInPublishResult> {
     let token = await this.getAccessToken();
@@ -295,4 +405,3 @@ export class LinkedInClient {
     }
   }
 }
-

@@ -128,6 +128,19 @@ describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
     });
   });
 
+  describe('OAuthServer (REQ-005 Browser OAuth)', () => {
+    it('debe generar el redirect URI y state válidos para OAuth de LinkedIn', () => {
+      const { OAuthServer } = require('../linkedin/oauthServer');
+      const server = new OAuthServer(54321);
+      assert.strictEqual(server.getRedirectUri(), 'http://127.0.0.1:54321/callback');
+
+      const state1 = server.generateState();
+      const state2 = server.generateState();
+      assert.ok(state1 && state1.length >= 16);
+      assert.notStrictEqual(state1, state2);
+    });
+  });
+
   describe('LinkedInClient Configuration (REQ-005)', () => {
     it('debe almacenar y recuperar tokens en SecretStorage de VS Code', async () => {
       const storedSecrets: Record<string, string> = {};

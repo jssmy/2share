@@ -93,6 +93,16 @@
           ],
           "description": "Tema visual por defecto para el snapshot del fragmento de código."
         },
+        "2share.clientId": {
+          "type": "string",
+          "default": "",
+          "description": "Client ID de tu aplicación de LinkedIn para autenticación OAuth2."
+        },
+        "2share.clientSecret": {
+          "type": "string",
+          "default": "",
+          "description": "Client Secret de tu aplicación de LinkedIn para OAuth2 (opcional, se guarda cifrado en SecretStorage si no se coloca aquí)."
+        },
         "2share.aiModelFamily": {
           "type": "string",
           "default": "gpt-4o",

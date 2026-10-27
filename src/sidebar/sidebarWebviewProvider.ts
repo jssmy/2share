@@ -63,9 +63,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     const token = await this.linkedInClient.getAccessToken();
     const authorUrn = await this.linkedInClient.getAuthorUrn();
+    const authorName = await this.linkedInClient.getAuthorName();
     const isConnected = !!token;
 
-    this._view.webview.html = this.getHtml(isConnected, authorUrn);
+    this._view.webview.html = this.getHtml(isConnected, authorUrn, authorName);
   }
 
   private async sendStatus(): Promise<void> {
@@ -74,16 +75,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     const token = await this.linkedInClient.getAccessToken();
     const authorUrn = await this.linkedInClient.getAuthorUrn();
+    const authorName = await this.linkedInClient.getAuthorName();
     this._view.webview.postMessage({
       command: 'statusUpdate',
       isConnected: !!token,
       authorUrn: authorUrn || '',
+      authorName: authorName || '',
     });
   }
 
-  private getHtml(isConnected: boolean, authorUrn?: string): string {
+  private getHtml(isConnected: boolean, authorUrn?: string, authorName?: string): string {
     const statusText = isConnected
-      ? '🟢 Conectado con LinkedIn'
+      ? `🟢 Conectado ${authorName ? `(${authorName})` : ''}`
       : '⚪ Sin vincular';
     const statusClass = isConnected ? 'status-connected' : 'status-disconnected';
     const authorDisplay = authorUrn ? authorUrn.replace('urn:li:person:', '') : '';
