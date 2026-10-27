@@ -38,6 +38,12 @@
     },
     "commands": [
       {
+        "command": "2share.openSidebar",
+        "title": "2share: Abrir Panel Lateral",
+        "category": "2share",
+        "icon": "$(layout-sidebar-left)"
+      },
+      {
         "command": "2share.createPost",
         "title": "2share: Crear Post para LinkedIn desde Commit",
         "category": "2share",
@@ -53,6 +59,9 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "2share.openSidebar"
+        },
+        {
           "command": "2share.createPost"
         },
         {
@@ -61,8 +70,12 @@
       ],
       "scm/title": [
         {
+          "command": "2share.openSidebar",
+          "group": "navigation@1"
+        },
+        {
           "command": "2share.createPost",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },

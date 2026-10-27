@@ -325,3 +325,4 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 </html>`;
   }
 }
+

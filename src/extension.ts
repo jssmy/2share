@@ -30,15 +30,69 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Comando: Abrir panel lateral
+  const openSidebarCommand = vscode.commands.registerCommand(
+    '2share.openSidebar',
+    async () => {
+      try {
+        await vscode.commands.executeCommand('workbench.view.extension.2share-view-container');
+      } catch (err: any) {
+        // Fallback para enfocar la vista directamente
+        await vscode.commands.executeCommand('2share.sidebarView.focus');
+      }
+    }
+  );
+  context.subscriptions.push(openSidebarCommand);
+
+  // Menú rápido de la barra de estado
+  const showMenuCommand = vscode.commands.registerCommand(
+    '2share.showMenu',
+    async () => {
+      const choice = await vscode.window.showQuickPick(
+        [
+          {
+            label: '$(layout-sidebar-left) Abrir Panel 2share',
+            description: 'Vista general, guía e inicio de sesión con LinkedIn',
+            id: 'openSidebar',
+          },
+          {
+            label: '$(send) Crear Post desde Commit',
+            description: 'Selecciona commit de Git y abre vista previa',
+            id: 'createPost',
+          },
+          {
+            label: '$(settings-gear) Configurar LinkedIn',
+            description: 'Gestionar token de acceso y credenciales',
+            id: 'configureLinkedIn',
+          },
+        ],
+        {
+          placeHolder: '2share: ¿Qué deseas hacer?',
+        }
+      );
+
+      if (choice) {
+        if (choice.id === 'openSidebar') {
+          await vscode.commands.executeCommand('2share.openSidebar');
+        } else if (choice.id === 'createPost') {
+          await vscode.commands.executeCommand('2share.createPost');
+        } else if (choice.id === 'configureLinkedIn') {
+          await vscode.commands.executeCommand('2share.configureLinkedIn');
+        }
+      }
+    }
+  );
+  context.subscriptions.push(showMenuCommand);
+
   // Botón rápido en la barra de estado inferior
   const statusBarItem = vscode.window.createStatusBarItem(
     '2share.statusBar',
     vscode.StatusBarAlignment.Left,
     100
   );
-  statusBarItem.command = '2share.createPost';
+  statusBarItem.command = '2share.showMenu';
   statusBarItem.text = '$(send) 2share';
-  statusBarItem.tooltip = '2share: Compartir Commit en LinkedIn';
+  statusBarItem.tooltip = '2share: Haz clic para abrir el panel o compartir commits';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
