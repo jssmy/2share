@@ -1,8 +1,8 @@
 {
-  "name": "2share",
-  "displayName": "2share - Git to LinkedIn Post",
-  "description": "Transforma tus commits de Git en publicaciones profesionales para LinkedIn con capturas de código estilizadas e IA de VS Code.",
-  "version": "0.1.0",
+  "name": "share-to-linkedin",
+  "displayName": "Share to LinkedIn",
+  "description": "Comparte fragmentos de código, commits y actualizaciones técnicas directamente en LinkedIn desde VS Code.",
+  "version": "0.2.0",
   "publisher": "jssmy",
   "engines": {
     "vscode": "^1.90.0"
@@ -11,7 +11,7 @@
   "categories": [
     "Other",
     "Programming Languages",
-    "Machine Learning"
+    "Productivity"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -21,97 +21,145 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "2share-view-container",
-          "title": "2share",
+          "id": "share-to-linkedin-view-container",
+          "title": "LINKEDIN SHARE",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "2share-view-container": [
+      "share-to-linkedin-view-container": [
         {
-          "id": "2share.sidebarView",
-          "name": "2share",
+          "id": "share-to-linkedin.sidebarView",
+          "name": "Share to LinkedIn",
           "type": "webview"
         }
       ]
     },
     "commands": [
       {
-        "command": "2share.openSidebar",
-        "title": "2share: Abrir Panel Lateral",
-        "category": "2share",
-        "icon": "$(layout-sidebar-left)"
+        "command": "share-to-linkedin.shareSelection",
+        "title": "Share to LinkedIn: Compartir selección",
+        "category": "Share to LinkedIn",
+        "icon": "$(link)"
       },
       {
-        "command": "2share.createPost",
-        "title": "2share: Crear Post para LinkedIn desde Commit",
-        "category": "2share",
+        "command": "share-to-linkedin.shareLastCommit",
+        "title": "Share to LinkedIn: Compartir último commit",
+        "category": "Share to LinkedIn",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "share-to-linkedin.openComposer",
+        "title": "Share to LinkedIn: Abrir compositor",
+        "category": "Share to LinkedIn",
         "icon": "$(send)"
       },
       {
-        "command": "2share.configureLinkedIn",
-        "title": "2share: Configurar Cuenta de LinkedIn",
-        "category": "2share",
+        "command": "share-to-linkedin.openSettings",
+        "title": "Share to LinkedIn: Configuración",
+        "category": "Share to LinkedIn",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "share-to-linkedin.help",
+        "title": "Share to LinkedIn: Ayuda",
+        "category": "Share to LinkedIn",
+        "icon": "$(question)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "share-to-linkedin.shareSelection",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "share-to-linkedin.shareLastCommit",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "2share.openSidebar"
+          "command": "share-to-linkedin.shareSelection"
         },
         {
-          "command": "2share.createPost"
+          "command": "share-to-linkedin.shareLastCommit"
         },
         {
-          "command": "2share.configureLinkedIn"
+          "command": "share-to-linkedin.openComposer"
+        },
+        {
+          "command": "share-to-linkedin.openSettings"
+        },
+        {
+          "command": "share-to-linkedin.help"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "share-to-linkedin.shareSelection",
+          "when": "editorHasSelection",
+          "group": "share@1"
         }
       ],
       "scm/title": [
         {
-          "command": "2share.openSidebar",
+          "command": "share-to-linkedin.shareLastCommit",
           "group": "navigation@1"
-        },
-        {
-          "command": "2share.createPost",
-          "group": "navigation@2"
         }
       ]
     },
     "configuration": {
-      "title": "2share",
+      "title": "Share to LinkedIn",
       "properties": {
-        "2share.defaultTheme": {
-          "type": "string",
-          "default": "nord",
-          "enum": [
-            "nord",
-            "one-dark-pro",
-            "github-dark",
-            "dracula"
-          ],
-          "description": "Tema visual por defecto para el snapshot del fragmento de código."
+        "share-to-linkedin.includeFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Incluir nombre de archivo y rango de líneas en la publicación."
         },
-        "2share.clientId": {
-          "type": "string",
-          "default": "",
-          "description": "Client ID de tu aplicación de LinkedIn para autenticación OAuth2."
+        "share-to-linkedin.showLineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mostrar números de líneas del fragmento de código seleccionado."
         },
-        "2share.clientSecret": {
-          "type": "string",
-          "default": "",
-          "description": "Client Secret de tu aplicación de LinkedIn para OAuth2 (opcional, se guarda cifrado en SecretStorage si no se coloca aquí)."
+        "share-to-linkedin.useCodeFormat": {
+          "type": "boolean",
+          "default": true,
+          "description": "Formatear el código con bloques Markdown o visuales en la publicación."
         },
-        "2share.aiModelFamily": {
+        "share-to-linkedin.messageTemplate": {
+          "type": "string",
+          "default": "Comparto este código que implementé en mi proyecto. ¡Espero que sea útil! 💡",
+          "description": "Plantilla por defecto para el texto de la publicación."
+        },
+        "share-to-linkedin.userHeadline": {
+          "type": "string",
+          "default": "Full Stack Developer | Angular • Laravel",
+          "description": "Subtítulo o cargo profesional para mostrar en la vista previa del post."
+        },
+        "share-to-linkedin.aiEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Habilitar sugerencia asistida con IA mediante vscode.lm."
+        },
+        "share-to-linkedin.aiModelFamily": {
           "type": "string",
           "default": "gpt-4o",
-          "description": "Familia de modelo de lenguaje sugerida para vscode.lm (ej. gpt-4o, claude-3.5-sonnet)."
+          "description": "Familia de modelo de lenguaje sugerida para la IA (ej. gpt-4o, claude-3.5-sonnet)."
         },
-        "2share.authorPersonUrn": {
+        "share-to-linkedin.clientId": {
           "type": "string",
           "default": "",
-          "description": "URN de la persona u organización en LinkedIn (urn:li:person:XXXX o urn:li:organization:XXXX)."
+          "description": "Client ID personalizado para la app de LinkedIn OAuth 2.0."
+        },
+        "share-to-linkedin.clientSecret": {
+          "type": "string",
+          "default": "",
+          "description": "Client Secret para la app de LinkedIn OAuth 2.0."
         }
       }
     }

@@ -1,252 +1,155 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { GitService } from '../git/gitService';
-import { AIService } from '../ai/aiService';
-import { SnapshotService } from '../snapshot/snapshotService';
-import { LinkedInClient } from '../linkedin/linkedinClient';
-import { GitCommitContext } from '../types';
+import { SelectionService } from '../services/SelectionService';
+import { GitService } from '../services/GitService';
+import { PostComposerService } from '../services/PostComposerService';
+import { SettingsService } from '../services/SettingsService';
+import { LinkedInAuthService } from '../services/LinkedInAuthService';
+import { OAuthServer } from '../linkedin/oauthServer';
+import { CodeSelectionContext, CommitContext } from '../models';
 
-describe('2share Unit Tests - All Requirements (REQ-001 to REQ-005)', () => {
-  describe('GitService (REQ-001)', () => {
-    it('debe inicializarse con el espacio de trabajo activo', () => {
-      const gitService = new GitService(process.cwd());
-      assert.ok(gitService);
+describe('Share to LinkedIn - Unit Test Suite', () => {
+  describe('SelectionService', () => {
+    const selectionService = new SelectionService();
+
+    it('debe calcular correctamente las insignias de lenguaje (TS, JS, PY, RS, etc.)', () => {
+      assert.strictEqual(selectionService.getLanguageBadge('typescript', 'users.service.ts'), 'TS');
+      assert.strictEqual(selectionService.getLanguageBadge('javascript', 'index.js'), 'JS');
+      assert.strictEqual(selectionService.getLanguageBadge('python', 'script.py'), 'PY');
+      assert.strictEqual(selectionService.getLanguageBadge('rust', 'main.rs'), 'RS');
+      assert.strictEqual(selectionService.getLanguageBadge('go', 'server.go'), 'GO');
+      assert.strictEqual(selectionService.getLanguageBadge('sql', 'query.sql'), 'SQL');
+    });
+  });
+
+  describe('GitService', () => {
+    const gitService = new GitService(process.cwd());
+
+    it('debe detectar correctamente si el entorno es un repositorio Git', async () => {
+      const isGit = await gitService.isGitRepository();
+      assert.strictEqual(isGit, true);
     });
 
-    it('debe poder consultar los commits del repositorio actual de 2share', async () => {
-      const gitService = new GitService(process.cwd());
-      const commits = await gitService.getRecentCommits(5);
-      assert.ok(Array.isArray(commits));
-      assert.ok(commits.length >= 1);
-      assert.ok(commits[0].hash);
-      assert.ok(commits[0].message);
+    it('debe obtener el último commit con hash, autor y archivos modificados', async () => {
+      const lastCommit = await gitService.getLastCommit();
+      assert.ok(lastCommit.hash);
+      assert.ok(lastCommit.shortHash);
+      assert.ok(lastCommit.author);
+      assert.ok(Array.isArray(lastCommit.changedFiles));
     });
 
-    it('debe extraer el contexto estructurado del último commit', async () => {
-      const gitService = new GitService(process.cwd());
-      const commits = await gitService.getRecentCommits(1);
-      const commitContext = await gitService.getCommitContext(commits[0].hash);
-
-      assert.strictEqual(commitContext.hash, commits[0].hash);
-      assert.ok(commitContext.shortHash);
-      assert.ok(Array.isArray(commitContext.changedFiles));
+    it('debe identificar patrones de archivos sensibles para no exponerlos en publicaciones', () => {
+      assert.strictEqual(gitService.isSensitiveFile('.env'), true);
+      assert.strictEqual(gitService.isSensitiveFile('.env.production'), true);
+      assert.strictEqual(gitService.isSensitiveFile('server.key'), true);
+      assert.strictEqual(gitService.isSensitiveFile('cert.pem'), true);
+      assert.strictEqual(gitService.isSensitiveFile('id_rsa'), true);
+      assert.strictEqual(gitService.isSensitiveFile('credentials.json'), true);
+      assert.strictEqual(gitService.isSensitiveFile('users.service.ts'), false);
     });
+  });
 
-    it('debe consolidar múltiples commits en un solo contexto (REQ-001 Escenario 4)', async () => {
-      const gitService = new GitService(process.cwd());
-      const commits = await gitService.getRecentCommits(3);
-      if (commits.length >= 2) {
-        const hashes = [commits[0].hash, commits[1].hash];
-        const multiContext = await gitService.getMultiCommitContext(hashes, 'Métrica: +35% velocidad');
+  describe('PostComposerService', () => {
+    const composerService = new PostComposerService();
 
-        assert.strictEqual(multiContext.mode, 'commits');
-        assert.ok(multiContext.selectedHashes && multiContext.selectedHashes.length === 2);
-        assert.strictEqual(multiContext.userContext, 'Métrica: +35% velocidad');
-        assert.ok(multiContext.message.includes(commits[0].shortHash));
-        assert.ok(multiContext.message.includes(commits[1].shortHash));
-        assert.ok(Array.isArray(multiContext.changedFiles));
-      }
-    });
+    it('debe redactar una publicación estructurada a partir de una selección de código', () => {
+      const mockSelection: CodeSelectionContext = {
+        text: 'async createUser(data: CreateUserDto) { return await this.prisma.user.create({ data }); }',
+        fileName: 'users.service.ts',
+        relativePath: 'src/services/users.service.ts',
+        fullPath: '/path/to/users.service.ts',
+        languageId: 'typescript',
+        languageBadge: 'TS',
+        startLine: 12,
+        endLine: 22,
+        lineCount: 11,
+      };
 
-    it('debe extraer contexto a partir de archivos seleccionados (REQ-001 Escenario 5)', async () => {
-      const gitService = new GitService(process.cwd());
-      const filesContext = await gitService.getFilesContext(
-        ['package.json', 'README.md'],
-        'Refactorización de configuración'
+      const { text, hashtags } = composerService.composeFromSelection(
+        mockSelection,
+        'technical',
+        {
+          includeFile: true,
+          showLineNumbers: true,
+          useCodeFormat: true,
+          messageTemplate: '',
+          userHeadline: '',
+          aiEnabled: false,
+          aiModelFamily: 'gpt-4o',
+        }
       );
 
-      assert.strictEqual(filesContext.mode, 'files');
-      assert.strictEqual(filesContext.userContext, 'Refactorización de configuración');
-      assert.ok(filesContext.selectedFiles && filesContext.selectedFiles.length === 2);
-      assert.ok(filesContext.message.includes('package.json'));
-      assert.ok(filesContext.changedFiles.length >= 1);
+      assert.ok(text.includes('users.service.ts'));
+      assert.ok(text.includes('TypeScript'));
+      assert.ok(text.includes('Líneas 12 - 22'));
+      assert.ok(hashtags.includes('#TypeScript'));
+      assert.ok(hashtags.includes('#Prisma'));
     });
 
-    it('debe listar archivos de workspace o git status (REQ-001 Escenario 5)', async () => {
-      const gitService = new GitService(process.cwd());
-      const files = await gitService.getWorkspaceFiles();
-      assert.ok(Array.isArray(files));
-      assert.ok(files.length > 0);
-      assert.ok(files[0].relativePath);
-      assert.ok(files[0].status);
+    it('debe generar la variante de aprendizaje (Learning)', () => {
+      const mockSelection: CodeSelectionContext = {
+        text: 'const result = calculateMetrics();',
+        fileName: 'metrics.ts',
+        relativePath: 'src/metrics.ts',
+        fullPath: '/path/metrics.ts',
+        languageId: 'typescript',
+        languageBadge: 'TS',
+        startLine: 5,
+        endLine: 8,
+        lineCount: 4,
+      };
+
+      const { text } = composerService.composeFromSelection(mockSelection, 'learning');
+      assert.ok(text.includes('Comparto un aprendizaje técnico clave'));
+      assert.ok(text.includes('metrics.ts'));
     });
-  });
 
-  describe('AIService Manual Template (REQ-002)', () => {
-    const aiService = new AIService();
-
-    it('debe generar una plantilla manual estructurada cuando no hay modelos LLM disponibles', () => {
-      const mockContext: GitCommitContext = {
-        hash: '9999999',
-        shortHash: '9999999',
-        message: 'fix: handle memory leak in webview listener',
+    it('debe redactar una publicación estructurada a partir de un commit', () => {
+      const mockCommit: CommitContext = {
+        hash: 'abc1234567890',
+        shortHash: 'abc1234',
         author: 'Joset Manihuari',
-        date: '2026-10-27',
+        date: '2026-10-28',
+        message: 'feat: add user authentication with JWT tokens',
+        branch: 'main',
         changedFiles: [
-          {
-            filePath: 'src/webview/panel.ts',
-            additions: 4,
-            deletions: 1,
-            patch: '',
-          },
+          { filePath: 'src/auth/jwt.ts', additions: 35, deletions: 2 },
+          { filePath: 'src/auth/service.ts', additions: 15, deletions: 1 },
         ],
       };
 
-      const template = aiService.generateManualTemplate(mockContext);
-      assert.ok(template.includes('handle memory leak in webview listener'));
-      assert.ok(template.includes('src/webview/panel.ts'));
-      assert.ok(template.includes('#SoftwareEngineering'));
-      assert.ok(template.includes('Reto técnico superado'));
+      const { text, hashtags } = composerService.composeFromCommit(mockCommit, 'technical');
+      assert.ok(text.includes('add user authentication with JWT tokens'));
+      assert.ok(text.includes('2 archivo(s) clave'));
+      assert.ok(hashtags.length > 0);
     });
 
-    it('debe incorporar el userContext personalizado en la plantilla (REQ-002 Escenario 4)', () => {
-      const mockContextWithUserContext: GitCommitContext = {
-        hash: '8888888',
-        shortHash: '8888888',
-        message: 'perf: optimize database query cache',
-        author: 'Joset Manihuari',
-        date: '2026-10-27',
-        userContext: 'Redujimos la latencia de 1200ms a 45ms usando Redis con TTL dinámico',
-        changedFiles: [
-          {
-            filePath: 'src/db/cache.ts',
-            additions: 25,
-            deletions: 5,
-            patch: '',
-          },
-        ],
-      };
-
-      const template = aiService.generateManualTemplate(mockContextWithUserContext);
-      assert.ok(template.includes('Redujimos la latencia de 1200ms a 45ms'));
-      assert.ok(template.includes('Contexto & Reto destacado'));
-    });
-  });
-
-  describe('SnapshotService (REQ-003)', () => {
-    const snapshotService = new SnapshotService();
-
-    it('debe extraer el mejor snippet de código de un GitCommitContext', () => {
-      const mockContext: GitCommitContext = {
-        hash: 'a1b2c3d4e5f6',
-        shortHash: 'a1b2c3d',
-        message: 'feat: add user authentication handler',
-        author: 'Joset Manihuari',
-        date: '2026-10-27',
-        changedFiles: [
-          {
-            filePath: 'package-lock.json',
-            additions: 100,
-            deletions: 10,
-            patch: '+ "version": "1.0.0"',
-          },
-          {
-            filePath: 'src/auth/service.ts',
-            additions: 15,
-            deletions: 2,
-            patch: `@@ -1,5 +1,12 @@
- import { Token } from './types';
-+export async function authenticateUser(token: string): Promise<boolean> {
-  const isValid = token.length > 10;
-  return isValid;
- }`,
-          },
-        ],
-      };
-
-      const snippet = snapshotService.extractBestSnippet(mockContext);
-      assert.strictEqual(snippet.fileName, 'service.ts');
-      assert.strictEqual(snippet.language, 'typescript');
-      assert.ok(snippet.code.includes('authenticateUser'));
-    });
-
-    it('debe extraer fragmento de código plano en modo archivos sin prefijos de diff', () => {
-      const mockFileContext: GitCommitContext = {
-        hash: 'workspace-files',
-        shortHash: 'Archivos',
-        message: 'Trabajo en archivos: config.ts',
-        author: 'Joset Manihuari',
-        date: '2026-10-27',
-        mode: 'files',
-        changedFiles: [
-          {
-            filePath: 'src/config.ts',
-            additions: 10,
-            deletions: 0,
-            patch: `export const API_URL = "https://api.2share.dev";
-export const TIMEOUT = 5000;
-export function getConfig() { return { API_URL, TIMEOUT }; }`,
-          },
-        ],
-      };
-
-      const snippet = snapshotService.extractBestSnippet(mockFileContext);
-      assert.strictEqual(snippet.fileName, 'config.ts');
-      assert.strictEqual(snippet.language, 'typescript');
-      assert.ok(snippet.code.includes('API_URL'));
-    });
-
-    it('debe priorizar el snippet de código personalizado cuando se especifica (REQ-003 Escenario 5)', () => {
-      const mockCustomContext: GitCommitContext = {
-        hash: 'custom-hash',
-        shortHash: 'custom',
-        message: 'feat: add query optimization',
-        author: 'Joset Manihuari',
-        date: '2026-10-27',
-        changedFiles: [
-          {
-            filePath: 'src/old.ts',
-            additions: 1,
-            deletions: 1,
-            patch: '+ const old = true;',
-          },
-        ],
-        customSnippet: {
-          code: 'SELECT * FROM users WHERE active = true;',
-          fileName: 'query.sql',
-          language: 'sql',
-        },
-      };
-
-      const snippet = snapshotService.extractBestSnippet(mockCustomContext);
-      assert.strictEqual(snippet.fileName, 'query.sql');
-      assert.strictEqual(snippet.language, 'sql');
-      assert.strictEqual(snippet.code, 'SELECT * FROM users WHERE active = true;');
-    });
-
-    it('debe generar un SVG estilizado con ventana macOS y tema Nord', () => {
-      const snapshot = snapshotService.generateSnapshot(
-        'example.ts',
+    it('debe sugerir hashtags pertinentes detectando palabras clave y frameworks', () => {
+      const tags = composerService.suggestHashtags(
         'typescript',
-        'const greeting = "Hello 2share";',
-        'nord'
+        'prisma.service.ts',
+        'import { NestModule } from "@nestjs/common";'
       );
-
-      assert.strictEqual(snapshot.theme, 'nord');
-      assert.strictEqual(snapshot.mimeType, 'image/svg+xml');
-      assert.ok(snapshot.svgContent.includes('<svg'));
-      assert.ok(snapshot.svgContent.includes('example.ts'));
-      assert.ok(snapshot.svgContent.includes('#ff5f56'));
-      assert.ok(snapshot.svgContent.includes('#ffbd2e'));
-      assert.ok(snapshot.svgContent.includes('#27c93f'));
-      assert.ok(snapshot.dataUri.startsWith('data:image/svg+xml;base64,'));
-    });
-
-    it('debe escapar correctamente caracteres XML/HTML peligrosos en el SVG', () => {
-      const dangerousCode = 'if (a < 5 && b > 10) { const tag = "<div>"; }';
-      const snapshot = snapshotService.generateSnapshot('safe.ts', 'typescript', dangerousCode, 'dracula');
-
-      assert.ok(!snapshot.svgContent.includes('<div>'));
-      assert.ok(snapshot.svgContent.includes('&lt;'));
-      assert.ok(snapshot.svgContent.includes('&gt;'));
-      assert.ok(snapshot.svgContent.includes('&amp;&amp;'));
-      assert.ok(snapshot.svgContent.includes('&quot;&lt;div&gt;&quot;'));
+      assert.ok(tags.includes('#TypeScript'));
+      assert.ok(tags.includes('#NestJS'));
+      assert.ok(tags.includes('#Prisma'));
+      assert.ok(tags.includes('#CleanCode'));
     });
   });
 
-  describe('OAuthServer (REQ-005 Browser OAuth)', () => {
+  describe('SettingsService', () => {
+    it('debe inicializarse con opciones por defecto válidas', () => {
+      const settingsService = new SettingsService();
+      const options = settingsService.getOptions();
+      assert.strictEqual(typeof options.includeFile, 'boolean');
+      assert.strictEqual(typeof options.showLineNumbers, 'boolean');
+      assert.strictEqual(typeof options.useCodeFormat, 'boolean');
+      assert.ok(options.messageTemplate.length > 0);
+    });
+  });
+
+  describe('OAuthServer & LinkedInAuthService', () => {
     it('debe generar el redirect URI y state válidos para OAuth de LinkedIn', () => {
-      const { OAuthServer } = require('../linkedin/oauthServer');
       const server = new OAuthServer(54321);
       assert.strictEqual(server.getRedirectUri(), 'http://127.0.0.1:54321/callback');
 
@@ -255,10 +158,8 @@ export function getConfig() { return { API_URL, TIMEOUT }; }`,
       assert.ok(state1 && state1.length >= 16);
       assert.notStrictEqual(state1, state2);
     });
-  });
 
-  describe('LinkedInClient Configuration (REQ-005)', () => {
-    it('debe almacenar y recuperar tokens en SecretStorage de VS Code', async () => {
+    it('debe almacenar y recuperar credenciales en SecretStorage de forma segura', async () => {
       const storedSecrets: Record<string, string> = {};
       const mockContext: any = {
         secrets: {
@@ -272,17 +173,18 @@ export function getConfig() { return { API_URL, TIMEOUT }; }`,
         },
       };
 
-      const client = new LinkedInClient(mockContext);
-      await client.saveAccessToken('test-token-12345');
-      await client.saveAuthorUrn('urn:li:person:abcdef');
+      const authService = new LinkedInAuthService(mockContext);
+      await authService.saveAccessToken('oauth-token-test-xyz');
+      await authService.saveAuthorUrn('urn:li:person:99999');
+      await authService.saveAuthorName('Joset Manihuari');
 
-      assert.strictEqual(await client.getAccessToken(), 'test-token-12345');
-      assert.strictEqual(await client.getAuthorUrn(), 'urn:li:person:abcdef');
+      assert.strictEqual(await authService.getAccessToken(), 'oauth-token-test-xyz');
+      assert.strictEqual(await authService.getAuthorUrn(), 'urn:li:person:99999');
+      assert.strictEqual(await authService.getAuthorName(), 'Joset Manihuari');
 
-      await client.clearCredentials();
-      assert.strictEqual(await client.getAccessToken(), undefined);
-      assert.strictEqual(await client.getAuthorUrn(), undefined);
+      await authService.clearCredentials();
+      assert.strictEqual(await authService.getAccessToken(), undefined);
+      assert.strictEqual(await authService.getAuthorUrn(), undefined);
     });
   });
 });
-

@@ -1,28 +1,29 @@
 import * as vscode from 'vscode';
-import { GitService } from './git/gitService';
-import { AIService } from './ai/aiService';
-import { SnapshotService } from './snapshot/snapshotService';
-import { PreviewPanel } from './webview/previewPanel';
-import { LinkedInClient } from './linkedin/linkedinClient';
-import { SidebarWebviewProvider } from './sidebar/sidebarWebviewProvider';
-import { SnapshotTheme, GitCommitContext } from './types';
+import { SelectionService } from './services/SelectionService';
+import { GitService } from './services/GitService';
+import { PostComposerService } from './services/PostComposerService';
+import { LinkedInAuthService } from './services/LinkedInAuthService';
+import { LinkedInClient } from './services/LinkedInClient';
+import { SettingsService } from './services/SettingsService';
+import { ShareViewProvider } from './providers/ShareViewProvider';
+import { ComposerPanel } from './providers/ComposerPanel';
+import { SettingsPanel } from './providers/SettingsPanel';
 
 export function activate(context: vscode.ExtensionContext) {
+  // Inicialización de servicios con inyección de dependencias
+  const selectionService = new SelectionService();
   const gitService = new GitService();
-  const aiService = new AIService();
-  const snapshotService = new SnapshotService();
-  const linkedInClient = new LinkedInClient(context);
+  const composerService = new PostComposerService();
+  const settingsService = new SettingsService();
+  const authService = new LinkedInAuthService(context);
+  const linkedInClient = new LinkedInClient(context, authService);
 
-  // Registrar panel lateral Webview en la Activity Bar
-  const sidebarWebviewProvider = new SidebarWebviewProvider(
-    context.extensionUri,
-    linkedInClient,
-    gitService
-  );
+  // 1. Registro del panel lateral (Activity Bar)
+  const shareViewProvider = new ShareViewProvider(context.extensionUri, authService);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      SidebarWebviewProvider.viewType,
-      sidebarWebviewProvider,
+      ShareViewProvider.viewType,
+      shareViewProvider,
       {
         webviewOptions: {
           retainContextWhenHidden: true,
@@ -31,276 +32,143 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Comando: Abrir panel lateral
-  const openSidebarCommand = vscode.commands.registerCommand(
-    '2share.openSidebar',
-    async () => {
-      try {
-        await vscode.commands.executeCommand('workbench.view.extension.2share-view-container');
-      } catch (err: any) {
-        // Fallback para enfocar la vista directamente
-        await vscode.commands.executeCommand('2share.sidebarView.focus');
-      }
-    }
+  // Registro para compatibilidad retroactiva de vista previa
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('2share.sidebarView', shareViewProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
-  context.subscriptions.push(openSidebarCommand);
 
-  // Menú rápido de la barra de estado
-  const showMenuCommand = vscode.commands.registerCommand(
-    '2share.showMenu',
+  // 2. Comando: Compartir selección (Ctrl+Alt+L / Cmd+Alt+L)
+  const shareSelectionCommand = vscode.commands.registerCommand(
+    'share-to-linkedin.shareSelection',
     async () => {
-      const choice = await vscode.window.showQuickPick(
-        [
-          {
-            label: '$(layout-sidebar-left) Abrir Panel 2share',
-            description: 'Vista general, guía e inicio de sesión con LinkedIn',
-            id: 'openSidebar',
-          },
-          {
-            label: '$(send) Crear Post desde Commit',
-            description: 'Selecciona commit de Git y abre vista previa',
-            id: 'createPost',
-          },
-          {
-            label: '$(settings-gear) Configurar LinkedIn',
-            description: 'Gestionar token de acceso y credenciales',
-            id: 'configureLinkedIn',
-          },
-        ],
-        {
-          placeHolder: '2share: ¿Qué deseas hacer?',
-        }
+      const selection = selectionService.getEditorSelection();
+      if (!selection) {
+        await selectionService.promptEmptySelectionHelp();
+        return;
+      }
+
+      await ComposerPanel.createOrShow(
+        context.extensionUri,
+        selectionService,
+        gitService,
+        composerService,
+        linkedInClient,
+        settingsService,
+        'selection'
       );
+    }
+  );
+  context.subscriptions.push(shareSelectionCommand);
 
-      if (choice) {
-        if (choice.id === 'openSidebar') {
-          await vscode.commands.executeCommand('2share.openSidebar');
-        } else if (choice.id === 'createPost') {
-          await vscode.commands.executeCommand('2share.createPost');
-        } else if (choice.id === 'configureLinkedIn') {
-          await vscode.commands.executeCommand('2share.configureLinkedIn');
-        }
+  // 3. Comando: Compartir último commit (Ctrl+Alt+C / Cmd+Alt+C)
+  const shareLastCommitCommand = vscode.commands.registerCommand(
+    'share-to-linkedin.shareLastCommit',
+    async () => {
+      const isGit = await gitService.isGitRepository();
+      if (!isGit) {
+        vscode.window.showWarningMessage(
+          'Share to LinkedIn: El espacio de trabajo actual no es un repositorio Git válido.'
+        );
+        return;
+      }
+
+      try {
+        await ComposerPanel.createOrShow(
+          context.extensionUri,
+          selectionService,
+          gitService,
+          composerService,
+          linkedInClient,
+          settingsService,
+          'commit'
+        );
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Share to LinkedIn: ${err.message}`);
       }
     }
   );
-  context.subscriptions.push(showMenuCommand);
+  context.subscriptions.push(shareLastCommitCommand);
 
-  // Botón rápido en la barra de estado inferior
+  // 4. Comando: Abrir compositor
+  const openComposerCommand = vscode.commands.registerCommand(
+    'share-to-linkedin.openComposer',
+    async () => {
+      await ComposerPanel.createOrShow(
+        context.extensionUri,
+        selectionService,
+        gitService,
+        composerService,
+        linkedInClient,
+        settingsService,
+        'selection'
+      );
+    }
+  );
+  context.subscriptions.push(openComposerCommand);
+
+  // 5. Comando: Configuración
+  const openSettingsCommand = vscode.commands.registerCommand(
+    'share-to-linkedin.openSettings',
+    async () => {
+      await SettingsPanel.createOrShow(
+        context.extensionUri,
+        settingsService,
+        authService,
+        linkedInClient
+      );
+    }
+  );
+  context.subscriptions.push(openSettingsCommand);
+
+  // 6. Comando: Ayuda
+  const helpCommand = vscode.commands.registerCommand('share-to-linkedin.help', async () => {
+    const action = await vscode.window.showInformationMessage(
+      'Share to LinkedIn: Comparte código seleccionado o commits en LinkedIn con vista previa fiel y control total.',
+      'Abrir Guía',
+      'Configuración',
+      'Cerrar'
+    );
+    if (action === 'Abrir Guía') {
+      await vscode.env.openExternal(vscode.Uri.parse('https://github.com/jssmy/2share#readme'));
+    } else if (action === 'Configuración') {
+      await vscode.commands.executeCommand('share-to-linkedin.openSettings');
+    }
+  });
+  context.subscriptions.push(helpCommand);
+
+  // Comandos de compatibilidad retroactiva con 2share
+  context.subscriptions.push(
+    vscode.commands.registerCommand('2share.createPost', async () => {
+      await vscode.commands.executeCommand('share-to-linkedin.shareSelection');
+    }),
+    vscode.commands.registerCommand('2share.openSidebar', async () => {
+      await vscode.commands.executeCommand('workbench.view.extension.share-to-linkedin-view-container');
+    }),
+    vscode.commands.registerCommand('2share.configureLinkedIn', async () => {
+      await vscode.commands.executeCommand('share-to-linkedin.openSettings');
+    })
+  );
+
+  // 7. Barra de estado inferior
   const statusBarItem = vscode.window.createStatusBarItem(
-    '2share.statusBar',
+    'shareToLinkedIn.statusBar',
     vscode.StatusBarAlignment.Left,
     100
   );
-  statusBarItem.command = '2share.showMenu';
-  statusBarItem.text = '$(send) 2share';
-  statusBarItem.tooltip = '2share: Haz clic para abrir el panel o compartir commits';
+  statusBarItem.command = 'share-to-linkedin.openComposer';
+  statusBarItem.text = '$(send) Share to LinkedIn';
+  statusBarItem.tooltip = 'Share to LinkedIn: Clic para abrir el compositor';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
-
-  // Comando: Configurar LinkedIn
-  const configCommand = vscode.commands.registerCommand(
-    '2share.configureLinkedIn',
-    async () => {
-      await linkedInClient.promptAuthentication();
-    }
-  );
-  context.subscriptions.push(configCommand);
-
-  // Comando Principal: Crear Post (soporta invocación directa desde panel lateral o wizard guiado)
-  const createPostCommand = vscode.commands.registerCommand(
-    '2share.createPost',
-    async (options?: {
-      mode?: 'commits' | 'files';
-      selectedHashes?: string[];
-      selectedFiles?: string[];
-      userContext?: string;
-      includeImage?: boolean;
-      customSnippetCode?: string;
-      customSnippetFileName?: string;
-    }) => {
-      try {
-        let commitContext: GitCommitContext | undefined;
-
-        if (
-          options &&
-          options.mode === 'commits' &&
-          options.selectedHashes &&
-          options.selectedHashes.length > 0
-        ) {
-          commitContext = await gitService.getMultiCommitContext(
-            options.selectedHashes,
-            options.userContext
-          );
-        } else if (
-          options &&
-          options.mode === 'files' &&
-          options.selectedFiles &&
-          options.selectedFiles.length > 0
-        ) {
-          commitContext = await gitService.getFilesContext(
-            options.selectedFiles,
-            options.userContext
-          );
-        } else {
-          // Si no se pasaron opciones (se invocó desde paleta de comandos o menú), lanzar wizard
-          commitContext = await gitService.promptPostCreation();
-        }
-
-        if (!commitContext) {
-          return;
-        }
-
-        if (options) {
-          if (typeof options.includeImage === 'boolean') {
-            commitContext.includeImage = options.includeImage;
-          }
-          if (options.customSnippetCode) {
-            commitContext.customSnippet = {
-              code: options.customSnippetCode,
-              fileName: options.customSnippetFileName || 'snippet.ts',
-            };
-          }
-        }
-
-        // Paso 2: Generación paralela de contenido IA e Imagen (REQ-002 y REQ-003)
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: '2share: Procesando contenido para LinkedIn...',
-            cancellable: false,
-          },
-          async (progress) => {
-            progress.report({ increment: 20, message: 'Extrayendo fragmento de código...' });
-            const snippet = snapshotService.extractBestSnippet(commitContext);
-
-            const config = vscode.workspace.getConfiguration('2share');
-            const defaultTheme = config.get<SnapshotTheme>('defaultTheme', 'nord');
-            let initialSnapshot = snapshotService.generateSnapshot(
-              snippet.fileName,
-              snippet.language,
-              snippet.code,
-              defaultTheme
-            );
-
-            progress.report({ increment: 40, message: 'Generando borrador con IA de VS Code...' });
-            let initialText = '';
-            try {
-              initialText = await aiService.generatePost(commitContext);
-            } catch (aiErr: any) {
-              vscode.window.showWarningMessage(
-                `2share: No se pudo consultar la IA (${aiErr.message}). Usando plantilla base.`
-              );
-              initialText = aiService.generateManualTemplate(commitContext);
-            }
-
-            progress.report({ increment: 40, message: 'Abriendo simulador de vista previa...' });
-
-            const initialIncludeImage = commitContext.includeImage !== false;
-
-            // Paso 3: Abrir simulador de vista previa y edición (REQ-004)
-            PreviewPanel.createOrShow(
-              context.extensionUri,
-              commitContext,
-              initialText,
-              initialSnapshot,
-              initialIncludeImage,
-              {
-                onRegenerateAI: async () => {
-                  return await aiService.generatePost(commitContext);
-                },
-                onChangeTheme: async (newTheme: SnapshotTheme) => {
-                  initialSnapshot = snapshotService.generateSnapshot(
-                    initialSnapshot.fileName,
-                    initialSnapshot.language,
-                    initialSnapshot.code,
-                    newTheme
-                  );
-                  return initialSnapshot;
-                },
-                onUpdateSnippet: async (
-                  code: string,
-                  fileName: string,
-                  theme: SnapshotTheme
-                ) => {
-                  const ext = fileName.split('.').pop() || 'ts';
-                  const lang = snapshotService.mapExtensionToLanguage(ext);
-                  initialSnapshot = snapshotService.generateSnapshot(
-                    fileName,
-                    lang,
-                    code,
-                    theme
-                  );
-                  return initialSnapshot;
-                },
-                onGetEditorSelection: async () => {
-                  const editor = vscode.window.activeTextEditor;
-                  if (editor && !editor.selection.isEmpty) {
-                    return {
-                      code: editor.document.getText(editor.selection),
-                      fileName: editor.document.fileName.split('/').pop() || 'snippet.ts',
-                    };
-                  }
-                  return undefined;
-                },
-                onPublish: async (finalText: string, currentSnapshot?: any) => {
-                  // Paso 4: Publicación en LinkedIn (REQ-005)
-                  let imageUrn: string | undefined;
-
-                  if (currentSnapshot && currentSnapshot.imageBuffer) {
-                    try {
-                      // Subir imagen a LinkedIn Assets API si está habilitada
-                      imageUrn = await linkedInClient.uploadImage(
-                        currentSnapshot.imageBuffer,
-                        currentSnapshot.mimeType === 'image/svg+xml'
-                          ? 'image/svg+xml'
-                          : 'image/png'
-                      );
-                    } catch (imgError: any) {
-                      const proceed = await vscode.window.showWarningMessage(
-                        `No se pudo cargar la imagen a LinkedIn (${imgError.message}). ¿Deseas publicar únicamente el texto?`,
-                        'Publicar solo texto',
-                        'Cancelar'
-                      );
-                      if (proceed !== 'Publicar solo texto') {
-                        return;
-                      }
-                    }
-                  }
-
-                  // Publicar post en LinkedIn (con o sin imagen)
-                  const publishResult = await linkedInClient.createPost(finalText, imageUrn);
-
-                  if (publishResult.success) {
-                    const action = await vscode.window.showInformationMessage(
-                      '🎉 ¡Post publicado exitosamente en LinkedIn!',
-                      'Ver Publicación',
-                      'Cerrar'
-                    );
-                    if (action === 'Ver Publicación' && publishResult.postUrl) {
-                      await vscode.env.openExternal(vscode.Uri.parse(publishResult.postUrl));
-                    }
-                  } else {
-                    vscode.window.showErrorMessage(
-                      `2share: Falló la publicación (${publishResult.error})`
-                    );
-                  }
-                },
-              }
-            );
-          }
-        );
-      } catch (err: any) {
-        vscode.window.showErrorMessage(`2share: Error en el flujo: ${err.message}`);
-      }
-    }
-  );
-
-  context.subscriptions.push(createPostCommand);
 }
 
 export function deactivate() {
-  if (PreviewPanel.currentPanel) {
-    PreviewPanel.currentPanel.dispose();
+  if (ComposerPanel.currentPanel) {
+    ComposerPanel.currentPanel.dispose();
+  }
+  if (SettingsPanel.currentPanel) {
+    SettingsPanel.currentPanel.dispose();
   }
 }
-
