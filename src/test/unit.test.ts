@@ -5,6 +5,7 @@ import { GitService } from '../services/GitService';
 import { PostComposerService } from '../services/PostComposerService';
 import { SettingsService } from '../services/SettingsService';
 import { LinkedInAuthService } from '../services/LinkedInAuthService';
+import { LinkedInClient } from '../services/LinkedInClient';
 import { OAuthServer } from '../linkedin/oauthServer';
 import { CodeSelectionContext, CommitContext } from '../models';
 
@@ -28,6 +29,13 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
     it('debe detectar correctamente si el entorno es un repositorio Git', async () => {
       const isGit = await gitService.isGitRepository();
       assert.strictEqual(isGit, true);
+    });
+
+    it('debe listar archivos no sensibles del espacio de trabajo', async () => {
+      const files = await gitService.getWorkspaceFiles();
+      assert.ok(Array.isArray(files));
+      assert.ok(files.length > 0);
+      assert.ok(files.every((f) => !gitService.isSensitiveFile(f)));
     });
 
     it('debe obtener el último commit con hash, autor y archivos modificados', async () => {
@@ -124,6 +132,64 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
       assert.ok(hashtags.length > 0);
     });
 
+    it('debe generar post compuesto a partir de múltiples commits, archivos y contexto', () => {
+      const commit1: CommitContext = {
+        hash: '1111111111',
+        shortHash: '1111111',
+        author: 'Joset',
+        date: '2026-10-28',
+        message: 'feat: add user schema in prisma',
+        branch: 'main',
+        changedFiles: [{ filePath: 'prisma/schema.prisma', additions: 20, deletions: 0 }],
+      };
+      const commit2: CommitContext = {
+        hash: '2222222222',
+        shortHash: '2222222',
+        author: 'Joset',
+        date: '2026-10-28',
+        message: 'feat: implement users service',
+        branch: 'main',
+        changedFiles: [{ filePath: 'src/services/users.service.ts', additions: 45, deletions: 2 }],
+      };
+
+      const { text, hashtags } = composerService.composeFromMultiCommits(
+        [commit1, commit2],
+        ['src/services/users.service.ts'],
+        'Optimización del flujo de usuarios con arquitectura modular',
+        'technical'
+      );
+
+      assert.ok(text.includes('Optimización del flujo de usuarios'));
+      assert.ok(text.includes('1111111'));
+      assert.ok(text.includes('2222222'));
+      assert.ok(text.includes('users.service.ts'));
+      assert.ok(hashtags.length > 0);
+    });
+
+    it('debe incorporar contexto personalizado del usuario en la selección de código', () => {
+      const mockSelection: CodeSelectionContext = {
+        text: 'export class AuthService {}',
+        fileName: 'auth.service.ts',
+        relativePath: 'src/auth.service.ts',
+        fullPath: '/path/auth.service.ts',
+        languageId: 'typescript',
+        languageBadge: 'TS',
+        startLine: 1,
+        endLine: 10,
+        lineCount: 10,
+      };
+
+      const { text } = composerService.composeFromSelection(
+        mockSelection,
+        'technical',
+        undefined,
+        'Refactorización con decoradores y validación estricta'
+      );
+
+      assert.ok(text.includes('Refactorización con decoradores'));
+      assert.ok(text.includes('auth.service.ts'));
+    });
+
     it('debe sugerir hashtags pertinentes detectando palabras clave y frameworks', () => {
       const tags = composerService.suggestHashtags(
         'typescript',
@@ -145,6 +211,25 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
       assert.strictEqual(typeof options.showLineNumbers, 'boolean');
       assert.strictEqual(typeof options.useCodeFormat, 'boolean');
       assert.ok(options.messageTemplate.length > 0);
+    });
+  });
+
+  describe('LinkedInClient & API Versioning', () => {
+    it('debe generar dinámicamente versiones activas de LinkedIn en formato YYYYMM', () => {
+      const versions = LinkedInClient.getCandidateVersions();
+      assert.ok(Array.isArray(versions));
+      assert.ok(versions.length >= 6);
+
+      const now = new Date();
+      const currentYearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      assert.ok(
+        versions.includes(currentYearMonth),
+        `Debe incluir el mes actual ${currentYearMonth}`
+      );
+
+      for (const v of versions) {
+        assert.match(v, /^\d{6}$/, `La versión ${v} debe tener formato de 6 dígitos YYYYMM`);
+      }
     });
   });
 

@@ -13,16 +13,23 @@ export class PostComposerService {
   public composeFromSelection(
     selection: CodeSelectionContext,
     variant: TemplateVariant = 'technical',
-    options?: PublicationOptions
+    options?: PublicationOptions,
+    customContext?: string
   ): { text: string; hashtags: string[] } {
     const lang = this.formatLanguageName(selection.languageId);
-    const hashtags = this.suggestHashtags(selection.languageId, selection.fileName, selection.text);
+    const hashtags = this.suggestHashtags(
+      selection.languageId,
+      selection.fileName,
+      (selection.text + ' ' + (customContext || '')).trim()
+    );
     const hashtagStr = hashtags.join(' ');
 
     let body = '';
     switch (variant) {
       case 'technical':
-        if (
+        if (customContext && customContext.trim()) {
+          body = `Implementación técnica en ${selection.fileName} (${lang}):\n\n${customContext.trim()}\n\nEste método estructura la lógica con patrones limpios, tipado estricto y alta mantenibilidad.`;
+        } else if (
           selection.fileName.toLowerCase().includes('user') ||
           selection.text.includes('createUser') ||
           selection.text.toLowerCase().includes('prisma')
@@ -33,12 +40,15 @@ export class PostComposerService {
         }
         break;
       case 'learning':
-        body = `Comparto un aprendizaje técnico clave trabajando en ${selection.fileName} con ${lang}:\n\nLa estructuración modular y el tipado estricto aceleran la mantenibilidad y reducen la deuda técnica en el desarrollo de software.`;
+        body = `Comparto un aprendizaje técnico clave trabajando en ${selection.fileName} con ${lang}:\n\n${
+          customContext ? customContext.trim() + '\n\n' : ''
+        }La estructuración modular y el tipado estricto aceleran la mantenibilidad y reducen la deuda técnica en el desarrollo de software.`;
         break;
       case 'experience':
-        body =
-          options?.messageTemplate ||
-          `Comparto este código que implementé en mi proyecto. ¡Espero que sea útil! 💡`;
+        body = customContext && customContext.trim()
+          ? `${customContext.trim()}\n\nComparto este avance que implementé en mi proyecto. ¡Espero que sea de utilidad!`
+          : options?.messageTemplate ||
+            `Comparto este código que implementé en mi proyecto. ¡Espero que sea útil! 💡`;
         break;
     }
 
@@ -61,33 +71,90 @@ export class PostComposerService {
   public composeFromCommit(
     commit: CommitContext,
     variant: TemplateVariant = 'technical',
+    options?: PublicationOptions,
+    customContext?: string
+  ): { text: string; hashtags: string[] } {
+    return this.composeFromMultiCommits([commit], [], customContext, variant, options);
+  }
+
+  /**
+   * Genera el post basado en uno o más commits seleccionados, archivos elegidos y contexto opcional
+   */
+  public composeFromMultiCommits(
+    commits: CommitContext[],
+    selectedFiles: string[] = [],
+    customContext?: string,
+    variant: TemplateVariant = 'technical',
     options?: PublicationOptions
   ): { text: string; hashtags: string[] } {
-    const filesList = commit.changedFiles
-      .slice(0, 3)
-      .map((f) => f.filePath)
-      .join(', ');
+    if (!commits || commits.length === 0) {
+      return {
+        text: 'No se han seleccionado commits.',
+        hashtags: ['#Git', '#Development'],
+      };
+    }
 
-    const detectedLang = this.detectLanguageFromFiles(commit.changedFiles.map((f) => f.filePath));
-    const hashtags = this.suggestHashtags(detectedLang, filesList, commit.message);
+    // Archivos combinados de los commits o filtrados según selección del usuario
+    const allCommitFiles = Array.from(
+      new Set(commits.flatMap((c) => c.changedFiles.map((f) => f.filePath)))
+    );
+    const targetFiles = selectedFiles.length > 0 ? selectedFiles : allCommitFiles;
+    const filesList = targetFiles.slice(0, 3).join(', ');
+    const detectedLang = this.detectLanguageFromFiles(targetFiles);
+
+    const combinedText =
+      commits.map((c) => c.message).join(' ') + ' ' + (customContext || '');
+    const hashtags = this.suggestHashtags(detectedLang, filesList, combinedText);
     const hashtagStr = hashtags.join(' ');
 
     let body = '';
-    const cleanMsg = commit.message.split('\n')[0];
+    const mainMsg = commits[0].message.split('\n')[0];
+    const isMulti = commits.length > 1;
 
     switch (variant) {
       case 'technical':
-        body = `🚀 Actualización técnica: ${cleanMsg}\n\nSe aplicaron mejoras en el flujo de trabajo afectando ${commit.changedFiles.length} archivo(s) clave (${filesList || 'repositorio'}).`;
+        if (customContext && customContext.trim()) {
+          body = `🚀 Actualización de desarrollo:\n\n${customContext.trim()}\n\n`;
+          if (isMulti) {
+            body += `📦 Incluye ${commits.length} commits recientes:\n` +
+              commits.map((c) => `• ${c.shortHash}: ${c.message.split('\n')[0]}`).join('\n');
+          } else {
+            body += `Commit: ${commits[0].shortHash} - "${mainMsg}"`;
+          }
+        } else if (isMulti) {
+          body = `🚀 Resumen de commits (${commits.length} actualizaciones en rama ${commits[0].branch || 'main'}):\n\n` +
+            commits.map((c) => `• ${c.shortHash}: ${c.message.split('\n')[0]}`).join('\n') +
+            `\n\nArchivos clave afectados: ${filesList || 'repositorio'}.`;
+        } else {
+          body = `🚀 Actualización técnica: ${mainMsg}\n\nSe aplicaron mejoras en el flujo de trabajo afectando ${commits[0].changedFiles.length} archivo(s) clave (${filesList || 'repositorio'}).`;
+        }
         break;
+
       case 'learning':
-        body = `💡 Aprendizaje del último commit: "${cleanMsg}"\n\nIterar en pequeñas unidades y mantener un historial de cambios descriptivo acelera las revisiones de código y la calidad del producto.`;
+        body = `💡 Aprendizaje técnico del sprint:\n\n` +
+          (customContext ? `${customContext.trim()}\n\n` : '') +
+          `Trabajando en ${isMulti ? `${commits.length} commits` : `"${mainMsg}"`}: ` +
+          `Mantener cambios atómicos, verificables y bien documentados agiliza el despliegue y eleva los estándares del equipo.`;
         break;
+
       case 'experience':
-        body = `Nuevo commit completado en la rama ${commit.branch || 'main'}: "${cleanMsg}". Seguimos avanzando paso a paso.`;
+        if (customContext && customContext.trim()) {
+          body = `${customContext.trim()}\n\nAvanzando en la rama ${commits[0].branch || 'main'} con ${commits.length} commit(s) integrados.`;
+        } else {
+          body = isMulti
+            ? `${commits.length} commits integrados exitosamente en la rama ${commits[0].branch || 'main'}. Compartiendo el avance de esta jornada de desarrollo.`
+            : `Nuevo commit completado en la rama ${commits[0].branch || 'main'}: "${mainMsg}". Seguimos avanzando paso a paso.`;
+        }
         break;
     }
 
-    const fullText = `${body}\n\n${hashtagStr}`;
+    let filesRef = '';
+    const shouldIncludeFile = options ? options.includeFile : true;
+    if (shouldIncludeFile && targetFiles.length > 0) {
+      filesRef = `\n\n📌 Archivos: ${targetFiles.slice(0, 4).join(', ')}`;
+    }
+
+    const fullText = `${body}${filesRef}\n\n${hashtagStr}`;
     return { text: fullText.trim(), hashtags };
   }
 
@@ -139,7 +206,8 @@ export class PostComposerService {
    */
   public async generateWithAI(
     contextText: string,
-    modelFamily = 'gpt-4o'
+    modelFamily = 'gpt-4o',
+    userInstructions?: string
   ): Promise<string> {
     if (!('lm' in vscode) || typeof vscode.lm.selectChatModels !== 'function') {
       throw new Error('La API `vscode.lm` no está disponible en este entorno.');
@@ -153,14 +221,19 @@ export class PostComposerService {
       throw new Error('No se encontraron modelos de IA disponibles en VS Code.');
     }
 
+    const instructionsPart = userInstructions && userInstructions.trim()
+      ? `\nInstrucciones y contexto específico del usuario:\n${userInstructions.trim()}\n`
+      : '';
+
     const messages = [
       vscode.LanguageModelChatMessage.User(
         `Eres un Developer Advocate experto en redacción para LinkedIn.
-A partir del siguiente código o commit, redacta un post breve, profesional, técnico y atractivo en español.
-No inventes métricas ni funcionalidades no respaldadas por el código.
-Incluye 4-5 hashtags técnicos al final.
+A partir del siguiente código, commit o diffs, redacta un post breve, profesional, técnico y de alto impacto en español.
+No inventes funcionalidades ni métricas que no estén en el contexto.
+${instructionsPart}
+Incluye 4-5 hashtags técnicos relevantes al final.
 
-Contexto:
+Contexto técnico:
 ${contextText.slice(0, 3000)}`
       ),
     ];

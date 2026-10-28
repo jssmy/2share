@@ -3,7 +3,42 @@ import { LinkedInPublishResult, UserProfile } from '../models';
 import { LinkedInAuthService } from './LinkedInAuthService';
 
 export class LinkedInClient {
-  private static readonly LINKEDIN_API_VERSION = '202401';
+  /**
+   * Obtiene la lista de versiones candidatas de la API de LinkedIn.
+   * LinkedIn requiere el encabezado 'LinkedIn-Version: YYYYMM'.
+   * Las versiones expiran a los 12 meses; por ello se genera dinámicamente
+   * el mes actual y los últimos 6 meses precedentes, garantizando una versión activa.
+   */
+  public static getCandidateVersions(): string[] {
+    const versions: string[] = [];
+    const config = vscode.workspace.getConfiguration('share-to-linkedin');
+    const customVersion = config.get<string>('apiVersion');
+    if (customVersion && customVersion.trim()) {
+      versions.push(customVersion.trim());
+    }
+
+    const now = new Date();
+    // Mes actual y los 6 meses anteriores (YYYYMM)
+    for (let i = 0; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const v = `${year}${month}`;
+      if (!versions.includes(v)) {
+        versions.push(v);
+      }
+    }
+
+    // Versiones de respaldo
+    const fallbacks = ['202601', '202512', '202510'];
+    for (const fb of fallbacks) {
+      if (!versions.includes(fb)) {
+        versions.push(fb);
+      }
+    }
+
+    return versions;
+  }
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -32,6 +67,7 @@ export class LinkedInClient {
 
   /**
    * Publica un post en LinkedIn mediante los endpoints oficiales
+   * Con gestión dinámica de versiones activas y fallback a v2 / portapapeles
    * (Cumple con Prompt Maestro Sección 8)
    */
   public async createPost(
@@ -85,48 +121,130 @@ export class LinkedInClient {
         };
       }
 
-      const response = await fetch('https://api.linkedin.com/rest/posts', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'LinkedIn-Version': LinkedInClient.LINKEDIN_API_VERSION,
-          'X-Restli-Protocol-Version': '2.0.0',
-        },
-        body: JSON.stringify(payload),
-      });
+      // 1. Intentar con las versiones REST activas de LinkedIn
+      const candidateVersions = LinkedInClient.getCandidateVersions();
+      let lastError = '';
+      let lastStatus = 0;
 
-      if (response.status === 201) {
-        const postUrn = response.headers.get('x-restli-id') || undefined;
-        let postUrl: string | undefined;
-        if (postUrn) {
-          postUrl = `https://www.linkedin.com/feed/update/${encodeURIComponent(postUrn)}`;
+      for (const version of candidateVersions) {
+        const response = await fetch('https://api.linkedin.com/rest/posts', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'LinkedIn-Version': version,
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (response.status === 201) {
+          const postUrn = response.headers.get('x-restli-id') || undefined;
+          let postUrl: string | undefined;
+          if (postUrn) {
+            postUrl = `https://www.linkedin.com/feed/update/${encodeURIComponent(postUrn)}`;
+          }
+          return { success: true, postUrn, postUrl };
         }
-        return { success: true, postUrn, postUrl };
+
+        // Si es 426 (versión inactiva), continuar con la siguiente versión candidata
+        if (response.status === 426) {
+          const errText = await response.text();
+          lastError = errText;
+          lastStatus = 426;
+          continue;
+        }
+
+        // Si falla 401, token expirado
+        if (response.status === 401) {
+          await this.authService.clearCredentials();
+          return {
+            success: false,
+            error: 'Sesión expirada (401). Vuelve a conectar tu cuenta de LinkedIn.',
+          };
+        }
+
+        // 403 Forbidden
+        if (response.status === 403) {
+          const errorBody = await response.text();
+          return {
+            success: false,
+            error: `Permisos insuficientes en LinkedIn (403): ${errorBody}. Asegúrate de tener concedido w_member_social.`,
+          };
+        }
+
+        lastStatus = response.status;
+        lastError = await response.text();
+        break;
       }
 
-      // Si falla 401, token expirado
-      if (response.status === 401) {
-        await this.authService.clearCredentials();
-        return {
-          success: false,
-          error: 'Sesión expirada (401). Vuelve a conectar tu cuenta de LinkedIn.',
+      // 2. Intento de fallback mediante la API v2/ugcPosts si /rest/posts fue rechazado
+      try {
+        const v2Payload: any = {
+          author: authorUrn,
+          lifecycleState: 'PUBLISHED',
+          specificContent: {
+            'com.linkedin.ugc.ShareContent': {
+              shareCommentary: {
+                text: commentary.trim(),
+              },
+              shareMediaCategory: imageUrn ? 'IMAGE' : 'NONE',
+            },
+          },
+          visibility: {
+            'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+          },
         };
+
+        if (imageUrn) {
+          v2Payload.specificContent['com.linkedin.ugc.ShareContent'].media = [
+            {
+              status: 'READY',
+              description: { text: 'Code Snapshot' },
+              media: imageUrn,
+              title: { text: 'Share to LinkedIn' },
+            },
+          ];
+        }
+
+        const v2Response = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+          body: JSON.stringify(v2Payload),
+        });
+
+        if (v2Response.status === 201) {
+          const postUrn = v2Response.headers.get('x-restli-id') || undefined;
+          let postUrl: string | undefined;
+          if (postUrn) {
+            postUrl = `https://www.linkedin.com/feed/update/${encodeURIComponent(postUrn)}`;
+          }
+          return { success: true, postUrn, postUrl };
+        }
+      } catch {
+        // Fallback ignorado si no hay conectividad a v2
       }
 
-      // 403 Forbidden
-      if (response.status === 403) {
-        const errorBody = await response.text();
-        return {
-          success: false,
-          error: `Permisos insuficientes en LinkedIn (403): ${errorBody}. Asegúrate de tener concedido w_member_social.`,
-        };
+      // 3. Prompt Maestro Sección 8: Ofrecer copiar al portapapeles y abrir feed
+      const action = await vscode.window.showErrorMessage(
+        `Share to LinkedIn: Error de API (${lastStatus || 400}). ${lastError || ''}`,
+        'Copiar y abrir LinkedIn',
+        'Cerrar'
+      );
+
+      if (action === 'Copiar y abrir LinkedIn') {
+        await vscode.env.clipboard.writeText(commentary);
+        await vscode.env.openExternal(vscode.Uri.parse('https://www.linkedin.com/feed/'));
+        return { success: true, isMock: true };
       }
 
-      const errorText = await response.text();
       return {
         success: false,
-        error: `Error de API de LinkedIn (${response.status}): ${errorText}`,
+        error: `Error de API de LinkedIn (${lastStatus}): ${lastError}`,
       };
     } catch (err: any) {
       return {

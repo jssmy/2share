@@ -2,7 +2,7 @@
   "name": "share-to-linkedin",
   "displayName": "Share to LinkedIn",
   "description": "Comparte fragmentos de código, commits y actualizaciones técnicas directamente en LinkedIn desde VS Code.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "jssmy",
   "engines": {
     "vscode": "^1.90.0"

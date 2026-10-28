@@ -56,6 +56,13 @@ export interface ComposerState {
   activeTab: 'selection' | 'commit';
   selection?: CodeSelectionContext;
   commit?: CommitContext;
+  recentCommits?: CommitContext[];
+  selectedCommitHashes?: string[];
+  selectedFiles?: string[];
+  customContext?: string;
+  includeImage: boolean;
+  imageContentType: 'snippet' | 'diff' | 'custom';
+  imageContentDescription?: string;
   postText: string;
   suggestedHashtags: string[];
   options: PublicationOptions;

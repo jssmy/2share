@@ -146,6 +146,21 @@ export class GitService {
     return results;
   }
 
+  public async getWorkspaceFiles(limit = 40): Promise<string[]> {
+    try {
+      const output = await this.runGit(['ls-files']);
+      const files = output
+        .trim()
+        .split('\n')
+        .map((f) => f.trim())
+        .filter((f) => f && !this.isSensitiveFile(f))
+        .slice(0, limit);
+      return files;
+    } catch {
+      return [];
+    }
+  }
+
   public isSensitiveFile(filePath: string): boolean {
     return SENSITIVE_PATTERNS.some((pattern) => pattern.test(filePath));
   }

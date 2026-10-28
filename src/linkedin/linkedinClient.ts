@@ -13,7 +13,23 @@ export class LinkedInClient {
     'V1BMX0FQMS5xQlkzSnIyRjZBRmEyMGY4LlhMc0dpQT09',
     'base64'
   ).toString('utf8');
-  private static readonly LINKEDIN_API_VERSION = '202401';
+  public static getCandidateVersions(): string[] {
+    const versions: string[] = [];
+    const now = new Date();
+    for (let i = 0; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const v = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!versions.includes(v)) {
+        versions.push(v);
+      }
+    }
+    for (const fb of ['202601', '202512', '202510']) {
+      if (!versions.includes(fb)) {
+        versions.push(fb);
+      }
+    }
+    return versions;
+  }
   private static readonly OAUTH_PORT = 54321;
 
   constructor(private context: vscode.ExtensionContext) {}
@@ -287,7 +303,7 @@ export class LinkedInClient {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'LinkedIn-Version': LinkedInClient.LINKEDIN_API_VERSION,
+        'LinkedIn-Version': LinkedInClient.getCandidateVersions()[0],
         'X-Restli-Protocol-Version': '2.0.0',
         'Content-Type': 'application/json',
       },
@@ -376,7 +392,7 @@ export class LinkedInClient {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'LinkedIn-Version': LinkedInClient.LINKEDIN_API_VERSION,
+        'LinkedIn-Version': LinkedInClient.getCandidateVersions()[0],
         'X-Restli-Protocol-Version': '2.0.0',
         'Content-Type': 'application/json',
       },
