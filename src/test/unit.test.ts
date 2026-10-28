@@ -186,6 +186,34 @@ export function getConfig() { return { API_URL, TIMEOUT }; }`,
       assert.ok(snippet.code.includes('API_URL'));
     });
 
+    it('debe priorizar el snippet de código personalizado cuando se especifica (REQ-003 Escenario 5)', () => {
+      const mockCustomContext: GitCommitContext = {
+        hash: 'custom-hash',
+        shortHash: 'custom',
+        message: 'feat: add query optimization',
+        author: 'Joset Manihuari',
+        date: '2026-10-27',
+        changedFiles: [
+          {
+            filePath: 'src/old.ts',
+            additions: 1,
+            deletions: 1,
+            patch: '+ const old = true;',
+          },
+        ],
+        customSnippet: {
+          code: 'SELECT * FROM users WHERE active = true;',
+          fileName: 'query.sql',
+          language: 'sql',
+        },
+      };
+
+      const snippet = snapshotService.extractBestSnippet(mockCustomContext);
+      assert.strictEqual(snippet.fileName, 'query.sql');
+      assert.strictEqual(snippet.language, 'sql');
+      assert.strictEqual(snippet.code, 'SELECT * FROM users WHERE active = true;');
+    });
+
     it('debe generar un SVG estilizado con ventana macOS y tema Nord', () => {
       const snapshot = snapshotService.generateSnapshot(
         'example.ts',

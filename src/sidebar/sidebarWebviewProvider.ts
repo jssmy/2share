@@ -45,7 +45,41 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             selectedHashes: message.selectedHashes,
             selectedFiles: message.selectedFiles,
             userContext: message.userContext,
+            includeImage: message.includeImage,
+            customSnippetCode: message.customSnippetCode,
+            customSnippetFileName: message.customSnippetFileName,
           });
+          break;
+        }
+        case 'useEditorSelectionInSidebar': {
+          const editor = vscode.window.activeTextEditor;
+          if (editor && !editor.selection.isEmpty) {
+            const selectedText = editor.document.getText(editor.selection);
+            const fileName = editor.document.fileName.split('/').pop() || 'snippet.ts';
+            this._view?.webview.postMessage({
+              command: 'fillSidebarSnippet',
+              code: selectedText,
+              fileName,
+            });
+            vscode.window.showInformationMessage(
+              `2share: Fragmento de código capturado de ${fileName}.`
+            );
+          } else if (editor) {
+            const fileName = editor.document.fileName.split('/').pop() || 'snippet.ts';
+            const firstLines = editor.document.getText().split('\n').slice(0, 25).join('\n');
+            this._view?.webview.postMessage({
+              command: 'fillSidebarSnippet',
+              code: firstLines,
+              fileName,
+            });
+            vscode.window.showInformationMessage(
+              `2share: Tomadas primeras líneas de ${fileName}.`
+            );
+          } else {
+            vscode.window.showInformationMessage(
+              '2share: No hay un archivo abierto o seleccionado en el editor.'
+            );
+          }
           break;
         }
         case 'refresh': {
@@ -130,9 +164,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       : '⚪ Sin vincular';
     const statusClass = isConnected ? 'status-connected' : 'status-disconnected';
     const authorDisplay = authorUrn ? authorUrn.replace('urn:li:person:', '') : '';
-
-    const commitsJson = JSON.stringify(commits);
-    const filesJson = JSON.stringify(files);
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -241,7 +272,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: #ffffff;
     }
     .selection-list {
-      max-height: 180px;
+      max-height: 160px;
       overflow-y: auto;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -335,12 +366,50 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       border: 1px solid var(--input-border);
       border-radius: 4px;
       resize: vertical;
-      min-height: 55px;
+      min-height: 50px;
       outline: none;
     }
     .context-textarea:focus {
       border-color: var(--vscode-focusBorder, #007fd4);
     }
+
+    /* Opciones de Imagen en Barra Lateral */
+    .image-config-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+    .image-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .snippet-subform {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .code-input-sm {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', Consolas, monospace;
+      background: var(--input-bg);
+      color: var(--input-fg);
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      resize: vertical;
+      min-height: 50px;
+      outline: none;
+      margin-top: 4px;
+    }
+
     .btn {
       display: block;
       width: 100%;
@@ -395,6 +464,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     .btn-text:hover {
       text-decoration: underline;
+    }
+    .btn-outline-sm {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg);
+      font-size: 10px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .btn-outline-sm:hover {
+      background: rgba(255, 255, 255, 0.08);
     }
     .empty-notice {
       padding: 14px 8px;
@@ -504,6 +586,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       ></textarea>
     </div>
 
+    <!-- Configuración de Imagen (Opcional y Personalizable) -->
+    <div class="image-config-card">
+      <label class="image-toggle-row">
+        <input type="checkbox" id="sidebar-chk-image" checked />
+        <span>📸 Incluir imagen de código (Snapshot)</span>
+      </label>
+
+      <div id="sidebar-snippet-subform" class="snippet-subform">
+        <label class="form-label">Fragmento de código específico (opcional):</label>
+        <input type="text" id="sidebar-snippet-file" class="search-input" placeholder="Nombre de archivo (ej: service.ts)" style="margin-bottom: 4px;" />
+        <textarea id="sidebar-snippet-code" class="code-input-sm" placeholder="// Deja vacío para detectar automáticamente del commit o pega tu código aquí..."></textarea>
+        <button type="button" id="btn-sidebar-use-selection" class="btn-outline-sm">📌 Tomar del editor activo</button>
+      </div>
+    </div>
+
     <div id="validation-error" class="error-hint"></div>
 
     <button id="btn-generate" class="btn btn-primary">
@@ -585,6 +682,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       });
     });
 
+    // Control de Imagen opcional
+    const chkImage = document.getElementById('sidebar-chk-image');
+    const snippetSubform = document.getElementById('sidebar-snippet-subform');
+    const snippetFile = document.getElementById('sidebar-snippet-file');
+    const snippetCode = document.getElementById('sidebar-snippet-code');
+    const btnSidebarUseSelection = document.getElementById('btn-sidebar-use-selection');
+
+    chkImage.addEventListener('change', () => {
+      snippetSubform.style.display = chkImage.checked ? 'block' : 'none';
+    });
+
+    btnSidebarUseSelection.addEventListener('click', () => {
+      vscode.postMessage({ command: 'useEditorSelectionInSidebar' });
+    });
+
     // Botón Recargar
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
       vscode.postMessage({ command: 'refresh' });
@@ -593,6 +705,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     // Generar Post con IA
     document.getElementById('btn-generate')?.addEventListener('click', () => {
       const contextText = document.getElementById('user-context').value;
+      const includeImage = chkImage.checked;
+      const customCode = snippetCode.value.trim();
+      const customFile = snippetFile.value.trim();
+
       validationError.style.display = 'none';
 
       if (currentMode === 'commits') {
@@ -610,6 +726,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           mode: 'commits',
           selectedHashes: checked,
           userContext: contextText.trim(),
+          includeImage,
+          customSnippetCode: customCode || undefined,
+          customSnippetFileName: customFile || undefined,
         });
       } else {
         const checked = Array.from(document.querySelectorAll('input[name="file-item"]:checked'))
@@ -626,6 +745,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           mode: 'files',
           selectedFiles: checked,
           userContext: contextText.trim(),
+          includeImage,
+          customSnippetCode: customCode || undefined,
+          customSnippetFileName: customFile || undefined,
         });
       }
     });
@@ -637,6 +759,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     document.getElementById('btn-disconnect')?.addEventListener('click', () => {
       vscode.postMessage({ command: 'disconnectLinkedIn' });
+    });
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (msg.command === 'fillSidebarSnippet') {
+        snippetCode.value = msg.code || '';
+        if (msg.fileName) {
+          snippetFile.value = msg.fileName;
+        }
+      }
     });
   </script>
 </body>

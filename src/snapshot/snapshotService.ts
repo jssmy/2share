@@ -67,14 +67,25 @@ const THEMES: Record<SnapshotTheme, ThemeColors> = {
 
 export class SnapshotService {
   /**
-   * Extrae el fragmento de código más representativo del commit
-   * Cumple con REQ-003 Escenario 2
+   * Extrae el fragmento de código más representativo del commit o usa el personalizado (REQ-003 Escenario 2 y 5)
    */
   public extractBestSnippet(commitContext: GitCommitContext): {
     code: string;
     fileName: string;
     language: string;
   } {
+    // Si el usuario especificó un fragmento personalizado, darle prioridad (REQ-003 Escenario 5)
+    if (commitContext.customSnippet && commitContext.customSnippet.code) {
+      const fileName = commitContext.customSnippet.fileName || 'snippet.ts';
+      const ext = path.extname(fileName).replace('.', '') || 'typescript';
+      return {
+        code: commitContext.customSnippet.code.trim(),
+        fileName: path.basename(fileName),
+        language:
+          commitContext.customSnippet.language || this.mapExtensionToLanguage(ext),
+      };
+    }
+
     // Filtrar archivos poco interesantes (locks, configs autogeneradas, markdown)
     const validFiles = commitContext.changedFiles.filter((f) => {
       const lower = f.filePath.toLowerCase();
@@ -145,7 +156,8 @@ export class SnapshotService {
     };
   }
 
-  private mapExtensionToLanguage(ext: string): string {
+  public mapExtensionToLanguage(ext: string): string {
+    const cleanExt = ext.replace(/^\./, '').toLowerCase();
     const map: Record<string, string> = {
       ts: 'typescript',
       js: 'javascript',
@@ -161,8 +173,12 @@ export class SnapshotService {
       css: 'css',
       json: 'json',
       md: 'markdown',
+      sql: 'sql',
+      sh: 'bash',
+      yaml: 'yaml',
+      yml: 'yaml',
     };
-    return map[ext] || ext;
+    return map[cleanExt] || cleanExt || 'typescript';
   }
 
   /**

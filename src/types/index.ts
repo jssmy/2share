@@ -27,6 +27,12 @@ export interface GitCommitContext {
   userContext?: string;
   selectedHashes?: string[];
   selectedFiles?: string[];
+  includeImage?: boolean;
+  customSnippet?: {
+    code: string;
+    fileName?: string;
+    language?: string;
+  };
 }
 
 export type SnapshotTheme = 'nord' | 'one-dark-pro' | 'github-dark' | 'dracula';

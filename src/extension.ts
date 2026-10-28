@@ -114,6 +114,9 @@ export function activate(context: vscode.ExtensionContext) {
       selectedHashes?: string[];
       selectedFiles?: string[];
       userContext?: string;
+      includeImage?: boolean;
+      customSnippetCode?: string;
+      customSnippetFileName?: string;
     }) => {
       try {
         let commitContext: GitCommitContext | undefined;
@@ -145,6 +148,18 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (!commitContext) {
           return;
+        }
+
+        if (options) {
+          if (typeof options.includeImage === 'boolean') {
+            commitContext.includeImage = options.includeImage;
+          }
+          if (options.customSnippetCode) {
+            commitContext.customSnippet = {
+              code: options.customSnippetCode,
+              fileName: options.customSnippetFileName || 'snippet.ts',
+            };
+          }
         }
 
         // Paso 2: Generación paralela de contenido IA e Imagen (REQ-002 y REQ-003)
@@ -180,51 +195,79 @@ export function activate(context: vscode.ExtensionContext) {
 
             progress.report({ increment: 40, message: 'Abriendo simulador de vista previa...' });
 
+            const initialIncludeImage = commitContext.includeImage !== false;
+
             // Paso 3: Abrir simulador de vista previa y edición (REQ-004)
             PreviewPanel.createOrShow(
               context.extensionUri,
               commitContext,
               initialText,
               initialSnapshot,
+              initialIncludeImage,
               {
                 onRegenerateAI: async () => {
                   return await aiService.generatePost(commitContext);
                 },
                 onChangeTheme: async (newTheme: SnapshotTheme) => {
                   initialSnapshot = snapshotService.generateSnapshot(
-                    snippet.fileName,
-                    snippet.language,
-                    snippet.code,
+                    initialSnapshot.fileName,
+                    initialSnapshot.language,
+                    initialSnapshot.code,
                     newTheme
                   );
                   return initialSnapshot;
                 },
-                onPublish: async (finalText: string, currentSnapshot) => {
+                onUpdateSnippet: async (
+                  code: string,
+                  fileName: string,
+                  theme: SnapshotTheme
+                ) => {
+                  const ext = fileName.split('.').pop() || 'ts';
+                  const lang = snapshotService.mapExtensionToLanguage(ext);
+                  initialSnapshot = snapshotService.generateSnapshot(
+                    fileName,
+                    lang,
+                    code,
+                    theme
+                  );
+                  return initialSnapshot;
+                },
+                onGetEditorSelection: async () => {
+                  const editor = vscode.window.activeTextEditor;
+                  if (editor && !editor.selection.isEmpty) {
+                    return {
+                      code: editor.document.getText(editor.selection),
+                      fileName: editor.document.fileName.split('/').pop() || 'snippet.ts',
+                    };
+                  }
+                  return undefined;
+                },
+                onPublish: async (finalText: string, currentSnapshot?: any) => {
                   // Paso 4: Publicación en LinkedIn (REQ-005)
                   let imageUrn: string | undefined;
 
-                  try {
-                    // Subir imagen a LinkedIn Assets API
-                    if (currentSnapshot.imageBuffer) {
+                  if (currentSnapshot && currentSnapshot.imageBuffer) {
+                    try {
+                      // Subir imagen a LinkedIn Assets API si está habilitada
                       imageUrn = await linkedInClient.uploadImage(
                         currentSnapshot.imageBuffer,
                         currentSnapshot.mimeType === 'image/svg+xml'
                           ? 'image/svg+xml'
                           : 'image/png'
                       );
-                    }
-                  } catch (imgError: any) {
-                    const proceed = await vscode.window.showWarningMessage(
-                      `No se pudo cargar la imagen a LinkedIn (${imgError.message}). ¿Deseas publicar únicamente el texto?`,
-                      'Publicar solo texto',
-                      'Cancelar'
-                    );
-                    if (proceed !== 'Publicar solo texto') {
-                      return;
+                    } catch (imgError: any) {
+                      const proceed = await vscode.window.showWarningMessage(
+                        `No se pudo cargar la imagen a LinkedIn (${imgError.message}). ¿Deseas publicar únicamente el texto?`,
+                        'Publicar solo texto',
+                        'Cancelar'
+                      );
+                      if (proceed !== 'Publicar solo texto') {
+                        return;
+                      }
                     }
                   }
 
-                  // Publicar post en LinkedIn
+                  // Publicar post en LinkedIn (con o sin imagen)
                   const publishResult = await linkedInClient.createPost(finalText, imageUrn);
 
                   if (publishResult.success) {

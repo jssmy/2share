@@ -1,10 +1,16 @@
 import * as vscode from 'vscode';
-import { CodeSnippetSnapshot, GitCommitContext, SnapshotTheme, WebviewMessage } from '../types';
+import { CodeSnippetSnapshot, GitCommitContext, SnapshotTheme } from '../types';
 
 export interface PreviewPanelCallbacks {
   onRegenerateAI: () => Promise<string>;
   onChangeTheme: (theme: SnapshotTheme) => Promise<CodeSnippetSnapshot>;
-  onPublish: (text: string, snapshot: CodeSnippetSnapshot) => Promise<void>;
+  onUpdateSnippet: (
+    code: string,
+    fileName: string,
+    theme: SnapshotTheme
+  ) => Promise<CodeSnippetSnapshot>;
+  onGetEditorSelection?: () => Promise<{ code: string; fileName: string } | undefined>;
+  onPublish: (text: string, snapshot?: CodeSnippetSnapshot) => Promise<void>;
 }
 
 export class PreviewPanel {
@@ -13,6 +19,7 @@ export class PreviewPanel {
   private disposables: vscode.Disposable[] = [];
   private currentText: string;
   private currentSnapshot: CodeSnippetSnapshot;
+  private includeImage: boolean;
   private commitContext: GitCommitContext;
   private callbacks: PreviewPanelCallbacks;
 
@@ -22,12 +29,14 @@ export class PreviewPanel {
     commitContext: GitCommitContext,
     initialText: string,
     initialSnapshot: CodeSnippetSnapshot,
+    initialIncludeImage: boolean,
     callbacks: PreviewPanelCallbacks
   ) {
     this.panel = panel;
     this.commitContext = commitContext;
     this.currentText = initialText;
     this.currentSnapshot = initialSnapshot;
+    this.includeImage = initialIncludeImage;
     this.callbacks = callbacks;
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -48,6 +57,7 @@ export class PreviewPanel {
     commitContext: GitCommitContext,
     initialText: string,
     initialSnapshot: CodeSnippetSnapshot,
+    initialIncludeImage: boolean,
     callbacks: PreviewPanelCallbacks
   ): PreviewPanel {
     const column = vscode.window.activeTextEditor
@@ -56,7 +66,13 @@ export class PreviewPanel {
 
     if (PreviewPanel.currentPanel) {
       PreviewPanel.currentPanel.panel.reveal(column);
-      PreviewPanel.currentPanel.updateData(commitContext, initialText, initialSnapshot, callbacks);
+      PreviewPanel.currentPanel.updateData(
+        commitContext,
+        initialText,
+        initialSnapshot,
+        initialIncludeImage,
+        callbacks
+      );
       return PreviewPanel.currentPanel;
     }
 
@@ -77,6 +93,7 @@ export class PreviewPanel {
       commitContext,
       initialText,
       initialSnapshot,
+      initialIncludeImage,
       callbacks
     );
 
@@ -87,11 +104,13 @@ export class PreviewPanel {
     commitContext: GitCommitContext,
     text: string,
     snapshot: CodeSnippetSnapshot,
+    includeImage: boolean,
     callbacks: PreviewPanelCallbacks
   ) {
     this.commitContext = commitContext;
     this.currentText = text;
     this.currentSnapshot = snapshot;
+    this.includeImage = includeImage;
     this.callbacks = callbacks;
     this.updateWebviewContent();
   }
@@ -100,6 +119,10 @@ export class PreviewPanel {
     switch (message.command) {
       case 'updateText':
         this.currentText = message.text;
+        break;
+
+      case 'toggleImage':
+        this.includeImage = !!message.includeImage;
         break;
 
       case 'regenerateAI':
@@ -129,10 +152,63 @@ export class PreviewPanel {
         }
         break;
 
+      case 'updateSnippet':
+        try {
+          const newSnapshot = await this.callbacks.onUpdateSnippet(
+            message.code,
+            message.fileName || this.currentSnapshot.fileName,
+            this.currentSnapshot.theme
+          );
+          this.currentSnapshot = newSnapshot;
+          this.panel.webview.postMessage({
+            command: 'setImage',
+            dataUri: newSnapshot.dataUri,
+            theme: newSnapshot.theme,
+            fileName: newSnapshot.fileName,
+            code: newSnapshot.code,
+          });
+          vscode.window.showInformationMessage('2share: Imagen de código actualizada.');
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`2share: Error al actualizar código: ${err.message}`);
+        }
+        break;
+
+      case 'useEditorSelection':
+        if (this.callbacks.onGetEditorSelection) {
+          const selection = await this.callbacks.onGetEditorSelection();
+          if (selection) {
+            const newSnapshot = await this.callbacks.onUpdateSnippet(
+              selection.code,
+              selection.fileName,
+              this.currentSnapshot.theme
+            );
+            this.currentSnapshot = newSnapshot;
+            this.panel.webview.postMessage({
+              command: 'setSnippetData',
+              fileName: selection.fileName,
+              code: selection.code,
+              dataUri: newSnapshot.dataUri,
+            });
+            vscode.window.showInformationMessage(
+              `2share: Código capturado del editor (${selection.fileName}).`
+            );
+          } else {
+            vscode.window.showInformationMessage(
+              '2share: No hay código seleccionado en el editor activo.'
+            );
+          }
+        }
+        break;
+
       case 'publish':
         this.setLoading(true, 'Publicando en LinkedIn...');
         try {
-          await this.callbacks.onPublish(message.text || this.currentText, this.currentSnapshot);
+          const shouldInclude =
+            typeof message.includeImage === 'boolean' ? message.includeImage : this.includeImage;
+          await this.callbacks.onPublish(
+            message.text || this.currentText,
+            shouldInclude ? this.currentSnapshot : undefined
+          );
         } catch (err: any) {
           vscode.window.showErrorMessage(`2share: ${err.message}`);
         } finally {
@@ -155,6 +231,8 @@ export class PreviewPanel {
     const dateStr = this.commitContext.date || 'Hace unos momentos';
     const shortHash = this.commitContext.shortHash;
     const commitMsg = this.commitContext.message;
+    const currentCode = this.currentSnapshot.code;
+    const currentFileName = this.currentSnapshot.fileName;
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -171,13 +249,16 @@ export class PreviewPanel {
       --accent: #0a66c2;
       --accent-hover: #004182;
       --subtext: #666666;
+      --input-bg: var(--vscode-input-background, #2d2d2d);
+      --input-fg: var(--vscode-input-foreground, #ffffff);
+      --input-border: var(--vscode-input-border, #454545);
     }
     body {
       background-color: var(--bg);
       color: var(--vscode-editor-foreground, #cccccc);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       margin: 0;
-      padding: 24px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -190,7 +271,7 @@ export class PreviewPanel {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--vscode-widget-border, #333);
     }
@@ -210,7 +291,7 @@ export class PreviewPanel {
       border: 1px solid var(--border);
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       overflow: hidden;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     .linkedin-header {
       display: flex;
@@ -276,6 +357,7 @@ export class PreviewPanel {
       text-align: center;
       padding: 12px;
       border-top: 1px solid #eee;
+      transition: all 0.2s ease;
     }
     .image-preview-area img {
       max-width: 100%;
@@ -283,6 +365,94 @@ export class PreviewPanel {
       border-radius: 6px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
+    .no-image-notice {
+      display: none;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-top: 1px solid #eee;
+      font-size: 12px;
+      color: var(--subtext);
+      font-style: italic;
+    }
+
+    /* Opciones de Imagen & Snippet */
+    .customization-card {
+      background: var(--vscode-sideBar-background, #252526);
+      border: 1px solid var(--vscode-widget-border, #3c3c3c);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 16px;
+    }
+    .customization-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .customization-title {
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--vscode-editor-foreground, #fff);
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .toggle-row input[type="checkbox"] {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+    .snippet-form {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground, #aaa);
+      margin-bottom: 4px;
+      display: block;
+    }
+    .form-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      font-size: 12px;
+      background: var(--input-bg);
+      color: var(--input-fg);
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      outline: none;
+    }
+    .form-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
+      background: var(--input-bg);
+      color: var(--input-fg);
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      min-height: 100px;
+      resize: vertical;
+      outline: none;
+    }
+    .snippet-actions {
+      display: flex;
+      gap: 8px;
+    }
+
     /* Acciones y Controles */
     .toolbar {
       display: flex;
@@ -331,6 +501,10 @@ export class PreviewPanel {
     .btn-primary:hover {
       background: #004182;
     }
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 11px;
+    }
     /* Overlay de carga */
     #loading-overlay {
       display: none;
@@ -362,7 +536,7 @@ export class PreviewPanel {
     <div class="header-bar">
       <div>
         <h3 style="margin: 0;">2share: Simulador de Publicación LinkedIn</h3>
-        <small style="color: var(--vscode-descriptionForeground, #999);">Commit: <strong>${escapeHtml(commitMsg)}</strong></small>
+        <small style="color: var(--vscode-descriptionForeground, #999);">Origen: <strong>${escapeHtml(commitMsg.split('\n')[0])}</strong></small>
       </div>
       <span class="badge">${shortHash}</span>
     </div>
@@ -382,15 +556,44 @@ export class PreviewPanel {
         <div id="char-counter" class="char-counter">0 / 3000 caracteres</div>
       </div>
 
-      <div class="image-preview-area">
+      <div id="image-area" class="image-preview-area" style="display: ${this.includeImage ? 'block' : 'none'};">
         <img id="snippet-img" src="${this.currentSnapshot.dataUri}" alt="Captura de código" />
+      </div>
+
+      <div id="no-image-notice" class="no-image-notice" style="display: ${this.includeImage ? 'none' : 'block'};">
+        📝 <em>Publicación configurada como solo texto (sin imagen adjunta).</em>
+      </div>
+    </div>
+
+    <!-- Personalización de Imagen y Código -->
+    <div class="customization-card">
+      <div class="toggle-row">
+        <input type="checkbox" id="chk-include-image" ${this.includeImage ? 'checked' : ''} />
+        <label for="chk-include-image"><strong>Incluir captura visual de código en el post</strong></label>
+      </div>
+
+      <div id="snippet-settings-wrapper" style="display: ${this.includeImage ? 'block' : 'none'};">
+        <div class="snippet-form">
+          <div>
+            <label class="form-label" for="snippet-filename">Nombre o ruta del archivo en la imagen:</label>
+            <input type="text" id="snippet-filename" class="form-input" value="${escapeHtml(currentFileName)}" />
+          </div>
+          <div>
+            <label class="form-label" for="snippet-code">Código a mostrar en el snapshot:</label>
+            <textarea id="snippet-code" class="form-textarea" rows="6">${escapeHtml(currentCode)}</textarea>
+          </div>
+          <div class="snippet-actions">
+            <button id="btn-update-snippet" class="btn btn-secondary btn-sm">🔄 Actualizar imagen con este código</button>
+            <button id="btn-use-selection" class="btn btn-secondary btn-sm">📌 Tomar selección del editor de VS Code</button>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Barra de Herramientas -->
     <div class="toolbar">
       <div class="theme-selector">
-        <label for="theme-select">Tema de código:</label>
+        <label for="theme-select">Tema visual:</label>
         <select id="theme-select">
           <option value="nord" ${this.currentSnapshot.theme === 'nord' ? 'selected' : ''}>Nord</option>
           <option value="one-dark-pro" ${this.currentSnapshot.theme === 'one-dark-pro' ? 'selected' : ''}>One Dark Pro</option>
@@ -414,6 +617,14 @@ export class PreviewPanel {
     const textArea = document.getElementById('post-text');
     const charCounter = document.getElementById('char-counter');
     const imgPreview = document.getElementById('snippet-img');
+    const imageArea = document.getElementById('image-area');
+    const noImageNotice = document.getElementById('no-image-notice');
+    const chkIncludeImage = document.getElementById('chk-include-image');
+    const snippetWrapper = document.getElementById('snippet-settings-wrapper');
+    const snippetFileName = document.getElementById('snippet-filename');
+    const snippetCode = document.getElementById('snippet-code');
+    const btnUpdateSnippet = document.getElementById('btn-update-snippet');
+    const btnUseSelection = document.getElementById('btn-use-selection');
     const themeSelect = document.getElementById('theme-select');
     const btnRegenerate = document.getElementById('btn-regenerate');
     const btnPublish = document.getElementById('btn-publish');
@@ -437,6 +648,26 @@ export class PreviewPanel {
       vscode.postMessage({ command: 'updateText', text: textArea.value });
     });
 
+    chkIncludeImage.addEventListener('change', () => {
+      const isChecked = chkIncludeImage.checked;
+      imageArea.style.display = isChecked ? 'block' : 'none';
+      noImageNotice.style.display = isChecked ? 'none' : 'block';
+      snippetWrapper.style.display = isChecked ? 'block' : 'none';
+      vscode.postMessage({ command: 'toggleImage', includeImage: isChecked });
+    });
+
+    btnUpdateSnippet.addEventListener('click', () => {
+      vscode.postMessage({
+        command: 'updateSnippet',
+        fileName: snippetFileName.value.trim(),
+        code: snippetCode.value,
+      });
+    });
+
+    btnUseSelection.addEventListener('click', () => {
+      vscode.postMessage({ command: 'useEditorSelection' });
+    });
+
     themeSelect.addEventListener('change', () => {
       vscode.postMessage({ command: 'changeTheme', theme: themeSelect.value });
     });
@@ -446,7 +677,11 @@ export class PreviewPanel {
     });
 
     btnPublish.addEventListener('click', () => {
-      vscode.postMessage({ command: 'publish', text: textArea.value });
+      vscode.postMessage({
+        command: 'publish',
+        text: textArea.value,
+        includeImage: chkIncludeImage.checked
+      });
     });
 
     window.addEventListener('message', (event) => {
@@ -457,6 +692,13 @@ export class PreviewPanel {
           updateCounter();
           break;
         case 'setImage':
+          imgPreview.src = msg.dataUri;
+          if (msg.fileName) snippetFileName.value = msg.fileName;
+          if (msg.code) snippetCode.value = msg.code;
+          break;
+        case 'setSnippetData':
+          snippetFileName.value = msg.fileName;
+          snippetCode.value = msg.code;
           imgPreview.src = msg.dataUri;
           break;
         case 'setLoading':
@@ -494,4 +736,3 @@ function escapeHtml(unsafe: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
-

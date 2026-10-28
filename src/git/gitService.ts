@@ -466,11 +466,70 @@ export class GitService {
         placeHolder: 'Ej: Redujimos la latencia 60% usando un cache local...',
       });
 
-      if (modeChoice.id === 'commits') {
-        return await this.getMultiCommitContext(selectedHashes, userContext);
-      } else {
-        return await this.getFilesContext(selectedFiles, userContext);
+      // Preguntar si desea incluir imagen (REQ-003 Escenario 4)
+      const imageChoice = await vscode.window.showQuickPick(
+        [
+          {
+            label: '$(device-camera) Incluir captura visual de código',
+            description: 'Genera imagen estilizada con marco macOS para LinkedIn',
+            id: 'with-image',
+          },
+          {
+            label: '$(note) Solo texto',
+            description: 'Publicar únicamente el contenido textual sin imagen adjunta',
+            id: 'text-only',
+          },
+        ],
+        {
+          title: '2share: ¿Deseas incluir imagen en la publicación?',
+        }
+      );
+
+      const includeImage = imageChoice ? imageChoice.id === 'with-image' : true;
+
+      // Preguntar por snippet personalizado si hay selección activa en el editor (REQ-003 Escenario 5)
+      let customSnippet: { code: string; fileName?: string } | undefined;
+      const activeEditor = vscode.window.activeTextEditor;
+      if (includeImage && activeEditor && !activeEditor.selection.isEmpty) {
+        const fileName = path.basename(activeEditor.document.fileName);
+        const useSelectionChoice = await vscode.window.showQuickPick(
+          [
+            {
+              label: '$(check) Usar selección actual del editor',
+              description: `Capturar fragmento seleccionado en ${fileName}`,
+              id: 'useSelection',
+            },
+            {
+              label: '$(sparkle) Extraer automáticamente de los cambios',
+              description: 'Detectar cambios representativos de forma automática',
+              id: 'auto',
+            },
+          ],
+          {
+            title: '2share: ¿Qué fragmento de código deseas mostrar en la imagen?',
+          }
+        );
+        if (useSelectionChoice && useSelectionChoice.id === 'useSelection') {
+          customSnippet = {
+            code: activeEditor.document.getText(activeEditor.selection),
+            fileName,
+          };
+        }
       }
+
+      let resultContext: GitCommitContext;
+      if (modeChoice.id === 'commits') {
+        resultContext = await this.getMultiCommitContext(selectedHashes, userContext);
+      } else {
+        resultContext = await this.getFilesContext(selectedFiles, userContext);
+      }
+
+      resultContext.includeImage = includeImage;
+      if (customSnippet) {
+        resultContext.customSnippet = customSnippet;
+      }
+
+      return resultContext;
     } catch (error: any) {
       vscode.window.showWarningMessage(
         `2share: ${error.message || 'Error al inspeccionar el repositorio Git.'}`
