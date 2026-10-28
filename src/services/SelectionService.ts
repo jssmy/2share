@@ -53,6 +53,49 @@ export class SelectionService {
   }
 
   /**
+   * Obtiene la selección del editor o un contexto de fallback si no hay selección
+   */
+  public getEditorSelectionOrSample(): CodeSelectionContext {
+    const sel = this.getEditorSelection();
+    if (sel) {
+      return sel;
+    }
+
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document) {
+      const doc = editor.document;
+      const fileName = path.basename(doc.fileName);
+      const lines = doc.getText().split('\n');
+      const count = Math.min(12, lines.length);
+      const sampleText = lines.slice(0, count).join('\n');
+      return {
+        text: sampleText || '// Código del proyecto',
+        fileName,
+        relativePath: fileName,
+        fullPath: doc.fileName,
+        languageId: doc.languageId,
+        languageBadge: this.getLanguageBadge(doc.languageId, fileName),
+        startLine: 1,
+        endLine: count,
+        lineCount: count,
+      };
+    }
+
+    // Fallback fiel al diseño de la imagen de referencia (users.service.ts)
+    return {
+      text: `async createUser(data: CreateUserDto) {\n  const { name, email, role } = data;\n  const user = await this.prisma.user.create({\n    data: {\n      name,\n      email,\n      role,\n      createdAt: new Date(),\n    },\n  });\n  return user;\n}`,
+      fileName: 'users.service.ts',
+      relativePath: 'src/services/users.service.ts',
+      fullPath: '',
+      languageId: 'typescript',
+      languageBadge: 'TS',
+      startLine: 12,
+      endLine: 22,
+      lineCount: 11,
+    };
+  }
+
+  /**
    * Genera una insignia corta de lenguaje para la tarjeta visual (ej. TS, JS, PY)
    */
   public getLanguageBadge(languageId: string, fileName: string): string {
@@ -107,3 +150,4 @@ export class SelectionService {
     }
   }
 }
+

@@ -69,3 +69,4 @@ export interface LinkedInPublishResult {
   error?: string;
   isMock?: boolean;
 }
+

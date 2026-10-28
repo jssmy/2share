@@ -150,3 +150,4 @@ export class GitService {
     return SENSITIVE_PATTERNS.some((pattern) => pattern.test(filePath));
   }
 }
+

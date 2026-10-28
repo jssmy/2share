@@ -220,21 +220,27 @@ export class ShareViewProvider implements vscode.WebviewViewProvider {
     </div>
 
     <button id="btn-share-selection" class="btn-share">
-      <span>🔗</span>
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542L3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.5 6.06l-.707.707a2 2 0 0 1 .184 2.529l-1.828 1.829a2 2 0 1 1-2.828-2.828l1.372-1.372a2 2 0 0 1 .586-.384l-.708-.707a3 3 0 0 0-.784.707zM11.285 9.458l1.372-1.372a3 3 0 0 0-4.243-4.243L6.586 5.671A3 3 0 0 0 7.5 9.94l.707-.707a2 2 0 0 1-.184-2.529l1.828-1.829a2 2 0 1 1 2.828 2.828l-1.372 1.372a2 2 0 0 1-.586.384l.708.707a3 3 0 0 0 .784-.707z"/></svg>
       <span>Compartir selección</span>
     </button>
 
     <div class="action-list">
       <div id="btn-share-commit" class="action-item">
-        <span class="action-icon">📦</span>
+        <span class="action-icon">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 0-7.86 0H1v1h3.07a4.002 4.002 0 0 0 7.86 0H15v-1h-3.07zM8 11a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+        </span>
         <span>Compartir último commit</span>
       </div>
       <div id="btn-open-settings" class="action-item">
-        <span class="action-icon">⚙️</span>
+        <span class="action-icon">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.8-1.3 2 .8.8 2-1.3.8.3.4 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.8 2.3-.4V7.4l-2.4-.5-.3-.7 1.3-2-.8-.9-2 1.3-.7-.3zM8 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+        </span>
         <span>Configuración</span>
       </div>
       <div id="btn-open-help" class="action-item">
-        <span class="action-icon">❓</span>
+        <span class="action-icon">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 7 7 7.008 7.008 0 0 0-7-7zm0 13a6 6 0 1 1 6-6 6.007 6.007 0 0 1-6 6zm0-10.5a2.5 2.5 0 0 0-2.5 2.5h1a1.5 1.5 0 1 1 2.37 1.23.75.75 0 0 0-.37.65V8.5h1v-.5a1.75 1.75 0 0 1 .88-1.52A2.5 2.5 0 0 0 8 3.5zm0 6.5a.75.75 0 1 0 .75.75A.75.75 0 0 0 8 10z"/></svg>
+        </span>
         <span>Ayuda</span>
       </div>
     </div>
@@ -277,3 +283,4 @@ export class ShareViewProvider implements vscode.WebviewViewProvider {
 </html>`;
   }
 }
+

@@ -39,31 +39,37 @@
     "commands": [
       {
         "command": "share-to-linkedin.shareSelection",
-        "title": "Share to LinkedIn: Compartir selección",
+        "title": "Compartir selección",
         "category": "Share to LinkedIn",
         "icon": "$(link)"
       },
       {
         "command": "share-to-linkedin.shareLastCommit",
-        "title": "Share to LinkedIn: Compartir último commit",
+        "title": "Compartir último commit",
         "category": "Share to LinkedIn",
         "icon": "$(git-commit)"
       },
       {
         "command": "share-to-linkedin.openComposer",
-        "title": "Share to LinkedIn: Abrir compositor",
+        "title": "Abrir compositor",
         "category": "Share to LinkedIn",
         "icon": "$(send)"
       },
       {
+        "command": "share-to-linkedin.openSidebar",
+        "title": "Abrir panel lateral",
+        "category": "Share to LinkedIn",
+        "icon": "$(layout-sidebar-left)"
+      },
+      {
         "command": "share-to-linkedin.openSettings",
-        "title": "Share to LinkedIn: Configuración",
+        "title": "Abrir configuración",
         "category": "Share to LinkedIn",
         "icon": "$(settings-gear)"
       },
       {
         "command": "share-to-linkedin.help",
-        "title": "Share to LinkedIn: Ayuda",
+        "title": "Ayuda",
         "category": "Share to LinkedIn",
         "icon": "$(question)"
       }

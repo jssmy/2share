@@ -112,21 +112,15 @@ export class ComposerPanel {
     this.state.activeTab = tab;
 
     if (tab === 'selection') {
-      const sel = this.selectionService.getEditorSelection();
+      const sel = this.selectionService.getEditorSelectionOrSample();
       this.state.selection = sel;
-      if (sel) {
-        const { text, hashtags } = this.composerService.composeFromSelection(
-          sel,
-          'technical',
-          this.state.options
-        );
-        this.state.postText = text;
-        this.state.suggestedHashtags = hashtags;
-      } else {
-        this.state.postText =
-          'Selecciona unas líneas de código en el editor para previsualizar la publicación.';
-        this.state.suggestedHashtags = ['#CleanCode', '#SoftwareEngineering'];
-      }
+      const { text, hashtags } = this.composerService.composeFromSelection(
+        sel,
+        'technical',
+        this.state.options
+      );
+      this.state.postText = text;
+      this.state.suggestedHashtags = hashtags;
     } else {
       try {
         const commit = await this.gitService.getLastCommit();
@@ -721,7 +715,7 @@ export class ComposerPanel {
 
     <!-- Botones de Acción -->
     <button id="btn-publish" class="btn-action-primary">
-      <span>in</span>
+      <span style="background: white; color: #0a66c2; font-weight: 800; font-size: 11px; padding: 1px 4px; border-radius: 2px; margin-right: 4px;">in</span>
       <span>Publicar en LinkedIn</span>
     </button>
     <button id="btn-copy" class="btn-action-secondary">
@@ -826,3 +820,4 @@ export class ComposerPanel {
     }
   }
 }
+

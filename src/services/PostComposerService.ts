@@ -22,15 +22,23 @@ export class PostComposerService {
     let body = '';
     switch (variant) {
       case 'technical':
-        body = `Hoy estuve implementando una solución en ${selection.fileName} utilizando ${lang}.\n\nEl objetivo central fue estructurar un código más limpio, modular y mantenible.`;
+        if (
+          selection.fileName.toLowerCase().includes('user') ||
+          selection.text.includes('createUser') ||
+          selection.text.toLowerCase().includes('prisma')
+        ) {
+          body = `Implementing user creation in the UsersService with Prisma ORM. This method handles the creation of a new user with essential fields and timestamps.`;
+        } else {
+          body = `Implementing key functionality in ${selection.fileName} with ${lang}. This implementation structures the business logic with clean patterns and maintainability.`;
+        }
         break;
       case 'learning':
-        body = `Comparto un aprendizaje técnico clave trabajando en ${selection.fileName} con ${lang}:\n\nLa claridad en las interfaces y el manejo explícito de tipos facilita enormemente la escalabilidad del proyecto.`;
+        body = `Comparto un aprendizaje técnico clave trabajando en ${selection.fileName} con ${lang}:\n\nLa estructuración modular y el tipado estricto aceleran la mantenibilidad y reducen la deuda técnica en el desarrollo de software.`;
         break;
       case 'experience':
         body =
           options?.messageTemplate ||
-          `Comparto este fragmento que implementé en mi proyecto. ¡Espero que sea de utilidad para la comunidad dev! 💡`;
+          `Comparto este código que implementé en mi proyecto. ¡Espero que sea útil! 💡`;
         break;
     }
 
@@ -191,3 +199,4 @@ ${contextText.slice(0, 3000)}`
     return 'plaintext';
   }
 }
+

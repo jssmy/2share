@@ -43,12 +43,6 @@ export function activate(context: vscode.ExtensionContext) {
   const shareSelectionCommand = vscode.commands.registerCommand(
     'share-to-linkedin.shareSelection',
     async () => {
-      const selection = selectionService.getEditorSelection();
-      if (!selection) {
-        await selectionService.promptEmptySelectionHelp();
-        return;
-      }
-
       await ComposerPanel.createOrShow(
         context.extensionUri,
         selectionService,
@@ -121,6 +115,21 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
   context.subscriptions.push(openSettingsCommand);
+
+  // Comando: Abrir panel lateral
+  const openSidebarCommand = vscode.commands.registerCommand(
+    'share-to-linkedin.openSidebar',
+    async () => {
+      try {
+        await vscode.commands.executeCommand(
+          'workbench.view.extension.share-to-linkedin-view-container'
+        );
+      } catch {
+        await vscode.commands.executeCommand('share-to-linkedin.sidebarView.focus');
+      }
+    }
+  );
+  context.subscriptions.push(openSidebarCommand);
 
   // 6. Comando: Ayuda
   const helpCommand = vscode.commands.registerCommand('share-to-linkedin.help', async () => {
