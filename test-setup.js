@@ -9,8 +9,10 @@ Module.prototype.require = function (id) {
         workspaceFolders: [{ uri: { fsPath: process.cwd() } }],
         getConfiguration: () => ({
           get: (key, defaultValue) => defaultValue,
+          update: async () => {},
         }),
       },
+      ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
       window: {
         showInformationMessage: async () => undefined,
         showWarningMessage: async () => undefined,

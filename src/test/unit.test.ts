@@ -262,10 +262,14 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
       await authService.saveAccessToken('oauth-token-test-xyz');
       await authService.saveAuthorUrn('urn:li:person:99999');
       await authService.saveAuthorName('Joset Manihuari');
+      await authService.saveClientId('client-id-custom-123');
+      await authService.saveClientSecret('client-secret-custom-456');
 
       assert.strictEqual(await authService.getAccessToken(), 'oauth-token-test-xyz');
       assert.strictEqual(await authService.getAuthorUrn(), 'urn:li:person:99999');
       assert.strictEqual(await authService.getAuthorName(), 'Joset Manihuari');
+      assert.strictEqual(await authService.getClientId(), 'client-id-custom-123');
+      assert.strictEqual(await authService.getClientSecret(), 'client-secret-custom-456');
 
       await authService.clearCredentials();
       assert.strictEqual(await authService.getAccessToken(), undefined);

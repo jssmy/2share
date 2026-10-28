@@ -64,6 +64,18 @@ export class LinkedInAuthService {
     );
   }
 
+  public async saveClientId(clientId: string): Promise<void> {
+    await this.context.secrets.store(LinkedInAuthService.CLIENT_ID_SECRET_KEY, clientId.trim());
+    try {
+      if (vscode.ConfigurationTarget) {
+        const config = vscode.workspace.getConfiguration('share-to-linkedin');
+        await config.update('clientId', clientId.trim(), vscode.ConfigurationTarget.Global);
+      }
+    } catch {
+      // Ignorar fallo de configuración en entornos sin workspace activo
+    }
+  }
+
   public async getClientSecret(): Promise<string> {
     const fromSecret = await this.context.secrets.get(LinkedInAuthService.CLIENT_SECRET_KEY);
     if (fromSecret?.trim()) return fromSecret.trim();
@@ -75,6 +87,18 @@ export class LinkedInAuthService {
       legacyConfig.get<string>('clientSecret') ||
       LinkedInAuthService.DEFAULT_CLIENT_SECRET
     );
+  }
+
+  public async saveClientSecret(clientSecret: string): Promise<void> {
+    await this.context.secrets.store(LinkedInAuthService.CLIENT_SECRET_KEY, clientSecret.trim());
+    try {
+      if (vscode.ConfigurationTarget) {
+        const config = vscode.workspace.getConfiguration('share-to-linkedin');
+        await config.update('clientSecret', clientSecret.trim(), vscode.ConfigurationTarget.Global);
+      }
+    } catch {
+      // Ignorar fallo de configuración en entornos sin workspace activo
+    }
   }
 
   public async clearCredentials(): Promise<void> {

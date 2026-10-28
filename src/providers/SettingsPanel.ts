@@ -76,8 +76,19 @@ export class SettingsPanel {
           useCodeFormat: !!message.useCodeFormat,
           messageTemplate: message.messageTemplate,
         });
-        vscode.window.showInformationMessage('Share to LinkedIn: Configuración guardada.');
+        if (message.clientId !== undefined) {
+          await this.authService.saveClientId(message.clientId);
+        }
+        if (message.clientSecret !== undefined) {
+          await this.authService.saveClientSecret(message.clientSecret);
+        }
+        vscode.window.showInformationMessage('Share to LinkedIn: Configuración y credenciales guardadas.');
         await this.updateContent();
+        break;
+
+      case 'copyUri':
+        await vscode.env.clipboard.writeText('http://127.0.0.1:54321/callback');
+        vscode.window.showInformationMessage('📋 Redirect URI copiado: http://127.0.0.1:54321/callback');
         break;
 
       case 'login':
@@ -98,7 +109,9 @@ export class SettingsPanel {
   public async updateContent() {
     const options = this.settingsService.getOptions();
     const profile = await this.linkedInClient.getUserProfile();
-    this.panel.webview.html = this.getHtml(options, profile);
+    const clientId = await this.authService.getClientId();
+    const clientSecret = await this.authService.getClientSecret();
+    this.panel.webview.html = this.getHtml(options, profile, clientId, clientSecret);
   }
 
   private escapeHtml(str: string): string {
@@ -110,7 +123,12 @@ export class SettingsPanel {
       .replace(/'/g, '&#039;');
   }
 
-  private getHtml(options: PublicationOptions, profile: UserProfile): string {
+  private getHtml(
+    options: PublicationOptions,
+    profile: UserProfile,
+    clientId = '',
+    clientSecret = ''
+  ): string {
     const isConnected = profile.isConnected;
     const name = profile.name || 'Joset Manihuari';
     const statusText = isConnected ? 'Conectado a LinkedIn' : 'Sin conectar';
@@ -426,6 +444,23 @@ export class SettingsPanel {
       </div>
     </div>
 
+    <!-- Credenciales de la Aplicación LinkedIn (OAuth 2.0) -->
+    <div class="section-title">Credenciales de LinkedIn Developer (OAuth 2.0)</div>
+    <div class="options-group" style="padding: 12px 16px;">
+      <div style="margin-bottom: 12px;">
+        <label class="switch-label" style="display: block; margin-bottom: 4px; font-size: 12px;">Client ID:</label>
+        <input type="text" id="input-client-id" class="template-textarea" style="min-height: auto; padding: 6px 10px;" placeholder="Ej: 78kwfia1cbcf7q" value="${this.escapeHtml(clientId)}">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label class="switch-label" style="display: block; margin-bottom: 4px; font-size: 12px;">Client Secret:</label>
+        <input type="password" id="input-client-secret" class="template-textarea" style="min-height: auto; padding: 6px 10px;" placeholder="••••••••••••••••" value="${this.escapeHtml(clientSecret)}">
+      </div>
+      <div style="font-size: 11px; color: var(--subtext); display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 8px;">
+        <span>Redirect URI: <code style="color: #4da3ff;">http://127.0.0.1:54321/callback</code></span>
+        <button id="btn-copy-uri" class="btn-auth" style="padding: 3px 8px; font-size: 11px;">Copiar URI</button>
+      </div>
+    </div>
+
     <!-- Plantilla de Mensaje -->
     <div class="section-title">Plantilla de mensaje</div>
     <div class="template-box">
@@ -461,6 +496,13 @@ export class SettingsPanel {
     const templateText = document.getElementById('template-text');
     const charCount = document.getElementById('char-count');
     const btnSave = document.getElementById('btn-save');
+    const inputClientId = document.getElementById('input-client-id');
+    const inputClientSecret = document.getElementById('input-client-secret');
+    const btnCopyUri = document.getElementById('btn-copy-uri');
+
+    btnCopyUri?.addEventListener('click', () => {
+      vscode.postMessage({ command: 'copyUri' });
+    });
 
     function updateCount() {
       charCount.innerText = \`\${templateText.value.length}/300\`;
@@ -479,7 +521,9 @@ export class SettingsPanel {
         includeFile: chkIncludeFile.checked,
         showLineNumbers: chkShowLines.checked,
         useCodeFormat: chkUseCode.checked,
-        messageTemplate: templateText.value.trim()
+        messageTemplate: templateText.value.trim(),
+        clientId: inputClientId ? inputClientId.value.trim() : undefined,
+        clientSecret: inputClientSecret ? inputClientSecret.value.trim() : undefined,
       });
     });
   </script>
