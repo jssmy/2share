@@ -341,9 +341,36 @@ export class ComposerPanel {
         break;
 
       case 'publish':
-        this.setLoading(true, 'Publicando en LinkedIn...');
+        this.setLoading(true, 'Preparando publicación...');
         try {
-          const result = await this.linkedInClient.createPost(message.text || this.state.postText);
+          let imageUrn: string | undefined;
+
+          // Si el usuario tiene habilitada la imagen y se generó el PNG base64
+          if (this.state.includeImage && message.imageBase64) {
+            this.setLoading(true, 'Subiendo imagen a LinkedIn...');
+            try {
+              const cleanBase64 = message.imageBase64.replace(/^data:image\/\w+;base64,/, '');
+              const imageBuffer = Buffer.from(cleanBase64, 'base64');
+              imageUrn = await this.linkedInClient.uploadImage(imageBuffer, 'image/png');
+            } catch (imgErr: any) {
+              const choice = await vscode.window.showWarningMessage(
+                `Share to LinkedIn: No se pudo subir la imagen (${imgErr.message}). ¿Deseas publicar el post solo con texto?`,
+                'Publicar solo texto',
+                'Cancelar'
+              );
+              if (choice !== 'Publicar solo texto') {
+                this.setLoading(false);
+                return;
+              }
+            }
+          }
+
+          this.setLoading(true, 'Publicando en LinkedIn...');
+          const result = await this.linkedInClient.createPost(
+            message.text || this.state.postText,
+            imageUrn
+          );
+
           if (result.success && !result.isMock) {
             const action = await vscode.window.showInformationMessage(
               '🎉 ¡Publicación compartida con éxito en LinkedIn!',
@@ -422,6 +449,21 @@ export class ComposerPanel {
       new Set(recentCommits.flatMap((c) => c.changedFiles.map((f) => f.filePath)))
     );
     const candidateFiles = availableCommitFiles.length > 0 ? availableCommitFiles : this.workspaceFiles;
+
+    const snippetCode = isSelection && sel
+      ? sel.text
+      : this.state.imageContentType === 'custom' && this.state.imageContentDescription
+      ? this.state.imageContentDescription
+      : commit
+      ? (commit.diffSummary || commit.changedFiles.map((f) => f.filePath).join('\n') || commit.message)
+      : 'export class Service {}';
+
+    const snippetDataJson = JSON.stringify({
+      fileName,
+      badge: badgeText,
+      startLine: isSelection && sel ? sel.startLine : 1,
+      code: snippetCode,
+    });
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -960,6 +1002,9 @@ export class ComposerPanel {
                   ? `<a id="link-view-file" class="file-action-link">Ver archivo &gt;</a>`
                   : ''
               }
+            </div>
+            <div id="image-preview-wrap" style="margin-top: 10px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: #0e131f;">
+              <canvas id="live-canvas-preview" style="width: 100%; height: auto; display: block; max-height: 200px; object-fit: contain;"></canvas>
             </div>`
           : ''
       }
@@ -1103,6 +1148,123 @@ export class ComposerPanel {
 
   <script>
     const vscode = acquireVsCodeApi();
+    window._snippetData = ${snippetDataJson};
+
+    function generateCardPng(targetCanvas) {
+      const canvas = targetCanvas || document.createElement('canvas');
+      const scale = 2;
+      const width = 800;
+      const padding = 24;
+      const headerHeight = 44;
+      const lineHeight = 22;
+
+      const rawText = (window._snippetData && window._snippetData.code) || 'console.log("Hello, LinkedIn!");';
+      const lines = rawText.split('\\n').slice(0, 20);
+      const contentHeight = Math.max(lines.length * lineHeight, 80);
+      const height = headerHeight + contentHeight + padding * 2 + 20;
+
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+
+      // Fondo degradado
+      const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+      bgGrad.addColorStop(0, '#1a1f2c');
+      bgGrad.addColorStop(1, '#0e131f');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Caja de la ventana con esquinas redondeadas
+      const cardX = 20;
+      const cardY = 16;
+      const cardW = width - 40;
+      const cardH = height - 32;
+      const radius = 10;
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+      ctx.shadowBlur = 16;
+      ctx.shadowOffsetY = 8;
+      ctx.fillStyle = '#1c2029';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, radius);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      // Barra superior estilo macOS
+      ctx.fillStyle = '#14171d';
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, headerHeight, [radius, radius, 0, 0]);
+      ctx.fill();
+
+      // Botones ventana (rojo, amarillo, verde)
+      const dotY = cardY + 22;
+      ctx.fillStyle = '#ff5f56'; ctx.beginPath(); ctx.arc(cardX + 20, dotY, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffbd2e'; ctx.beginPath(); ctx.arc(cardX + 38, dotY, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#27c93f'; ctx.beginPath(); ctx.arc(cardX + 56, dotY, 6, 0, Math.PI * 2); ctx.fill();
+
+      // Título del archivo
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText((window._snippetData && window._snippetData.fileName) || 'users.service.ts', width / 2, dotY + 4);
+
+      // Insignia del lenguaje
+      ctx.fillStyle = '#0a66c2';
+      ctx.beginPath();
+      ctx.roundRect(cardX + cardW - 55, cardY + 12, 38, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText((window._snippetData && window._snippetData.badge) || 'TS', cardX + cardW - 36, cardY + 26);
+
+      // Renderizado de líneas de código
+      ctx.textAlign = 'left';
+      ctx.font = '13px Menlo, Monaco, "Courier New", monospace';
+      const startY = cardY + headerHeight + 22;
+      const startLine = (window._snippetData && window._snippetData.startLine) || 1;
+
+      lines.forEach((line, i) => {
+        const y = startY + i * lineHeight;
+        ctx.fillStyle = '#5c6370';
+        ctx.fillText(String(startLine + i).padStart(2, ' '), cardX + 16, y);
+
+        const clean = line.replace(/\\t/g, '  ');
+        if (clean.trim().startsWith('//') || clean.trim().startsWith('#')) {
+          ctx.fillStyle = '#616e88';
+        } else if (clean.match(/\\b(import|export|from|class|const|let|var|function|async|await|return|if|else)\\b/)) {
+          ctx.fillStyle = '#81a1c1';
+        } else if (clean.match(/['"\`].*?['"\`]/)) {
+          ctx.fillStyle = '#a3be8c';
+        } else {
+          ctx.fillStyle = '#e1e4ea';
+        }
+        ctx.fillText(clean, cardX + 50, y);
+      });
+
+      // Pie con marca Share to LinkedIn
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('Share to LinkedIn', cardX + cardW - 14, cardY + cardH - 10);
+
+      return canvas.toDataURL('image/png');
+    }
+
+    // Inicializar previsualización en vivo si el elemento existe
+    try {
+      const liveCanvas = document.getElementById('live-canvas-preview');
+      if (liveCanvas) {
+        generateCardPng(liveCanvas);
+      }
+    } catch (e) {
+      console.error(e);
+    }
     const postText = document.getElementById('post-text');
     const tabSelection = document.getElementById('tab-selection');
     const tabCommit = document.getElementById('tab-commit');
@@ -1201,7 +1363,19 @@ export class ComposerPanel {
     });
 
     btnPublish.addEventListener('click', () => {
-      vscode.postMessage({ command: 'publish', text: postText.value });
+      let imageBase64 = null;
+      if (chkIncludeImage && chkIncludeImage.checked) {
+        try {
+          imageBase64 = generateCardPng();
+        } catch (e) {
+          console.error('Error generando imagen de código:', e);
+        }
+      }
+      vscode.postMessage({
+        command: 'publish',
+        text: postText.value,
+        imageBase64: imageBase64
+      });
     });
 
     btnCopy.addEventListener('click', () => {

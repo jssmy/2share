@@ -255,7 +255,8 @@ export class LinkedInClient {
   }
 
   /**
-   * Sube una imagen a LinkedIn usando Assets API
+   * Sube una imagen a LinkedIn usando REST Images API oficial
+   * (con soporte dinámico de versiones y fallback a v2/assets)
    */
   public async uploadImage(imageBuffer: Buffer, mimeType = 'image/png'): Promise<string> {
     const accessToken = await this.authService.getAccessToken();
@@ -265,62 +266,122 @@ export class LinkedInClient {
       throw new Error('Debes iniciar sesión con LinkedIn para subir imágenes.');
     }
 
-    // 1. Registrar upload
-    const registerResponse = await fetch(
-      'https://api.linkedin.com/v2/assets?action=registerUpload',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          registerUploadRequest: {
-            recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-            owner: authorUrn,
-            serviceRelationships: [
-              {
-                relationshipType: 'OWNER',
-                identifier: 'urn:li:userGeneratedContent',
+    const candidateVersions = LinkedInClient.getCandidateVersions();
+    let lastError = '';
+
+    // 1. Intentar con REST Images API oficial de LinkedIn (/rest/images?action=initializeUpload)
+    for (const version of candidateVersions) {
+      try {
+        const initResponse = await fetch(
+          'https://api.linkedin.com/rest/images?action=initializeUpload',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'LinkedIn-Version': version,
+              'X-Restli-Protocol-Version': '2.0.0',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              initializeUploadRequest: {
+                owner: authorUrn,
               },
-            ],
+            }),
+          }
+        );
+
+        if (initResponse.status === 426) {
+          lastError = await initResponse.text();
+          continue;
+        }
+
+        if (!initResponse.ok) {
+          lastError = await initResponse.text();
+          break;
+        }
+
+        const initData: any = await initResponse.json();
+        const uploadUrl = initData?.value?.uploadUrl;
+        const imageUrn = initData?.value?.image;
+
+        if (!uploadUrl || !imageUrn) {
+          throw new Error('Respuesta inválida de LinkedIn al inicializar carga de imagen.');
+        }
+
+        // Subir binario crudo a la URL devuelta por LinkedIn
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': mimeType,
           },
-        }),
+          body: new Uint8Array(imageBuffer),
+        });
+
+        if (!uploadResponse.ok) {
+          const err = await uploadResponse.text();
+          throw new Error(`Error cargando binario de imagen (${uploadResponse.status}): ${err}`);
+        }
+
+        return imageUrn; // Formato oficial urn:li:image:...
+      } catch (err: any) {
+        lastError = err.message;
       }
-    );
-
-    if (!registerResponse.ok) {
-      const err = await registerResponse.text();
-      throw new Error(`Error registrando imagen: ${registerResponse.status} ${err}`);
     }
 
-    const regData: any = await registerResponse.json();
-    const uploadUrl =
-      regData.value?.uploadMechanism?.[
-        'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'
-      ]?.uploadUrl;
-    const assetUrn = regData.value?.asset;
+    // 2. Fallback a v2/assets si /rest/images fue rechazado
+    try {
+      const registerResponse = await fetch(
+        'https://api.linkedin.com/v2/assets?action=registerUpload',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            registerUploadRequest: {
+              recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+              owner: authorUrn,
+              serviceRelationships: [
+                {
+                  relationshipType: 'OWNER',
+                  identifier: 'urn:li:userGeneratedContent',
+                },
+              ],
+            },
+          }),
+        }
+      );
 
-    if (!uploadUrl || !assetUrn) {
-      throw new Error('Respuesta inválida al registrar imagen en LinkedIn.');
+      if (registerResponse.ok) {
+        const regData: any = await registerResponse.json();
+        const uploadUrl =
+          regData.value?.uploadMechanism?.[
+            'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'
+          ]?.uploadUrl;
+        const assetUrn = regData.value?.asset;
+
+        if (uploadUrl && assetUrn) {
+          const uploadResponse = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': mimeType,
+            },
+            body: new Uint8Array(imageBuffer),
+          });
+
+          if (uploadResponse.ok) {
+            return assetUrn;
+          }
+        }
+      }
+    } catch {
+      // Ignorar fallback si falla la red
     }
 
-    // 2. Subir buffer
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': mimeType,
-      },
-      body: new Uint8Array(imageBuffer),
-    });
-
-    if (!uploadResponse.ok) {
-      const err = await uploadResponse.text();
-      throw new Error(`Error cargando imagen: ${uploadResponse.status} ${err}`);
-    }
-
-    return assetUrn;
+    throw new Error(`No se pudo subir la imagen a LinkedIn: ${lastError}`);
   }
 }
 
