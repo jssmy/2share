@@ -190,6 +190,17 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
       assert.ok(text.includes('auth.service.ts'));
     });
 
+    it('debe generar borrador inteligente cuando la IA procesa instrucciones del usuario y código', () => {
+      const draft = composerService.generateSmartDraft(
+        'Archivo: users.service.ts\nasync createUser() {}',
+        'Explicar por qué usamos Prisma en vez de TypeORM para evitar inconsistencias',
+        'technical'
+      );
+      assert.ok(draft.includes('Explicar por qué usamos Prisma'));
+      assert.ok(draft.includes('Avance técnico'));
+      assert.ok(draft.includes('#SoftwareEngineering'));
+    });
+
     it('debe sugerir hashtags pertinentes detectando palabras clave y frameworks', () => {
       const tags = composerService.suggestHashtags(
         'typescript',

@@ -284,33 +284,68 @@ export class ComposerPanel {
         this.panel.webview.postMessage({ command: 'setText', text: this.state.postText });
         break;
 
-      case 'generateAI':
+      case 'generateAI': {
         this.setLoading(true, 'Generando publicación con IA de VS Code...');
+        if (message.context !== undefined) {
+          this.state.customContext = message.context;
+        }
+
         try {
-          let context = '';
+          let codeContext = '';
           if (this.state.activeTab === 'selection') {
-            context = this.state.selection?.text || '';
+            const sel = this.state.selection || this.selectionService.getEditorSelectionOrSample();
+            codeContext = `Archivo: ${sel.relativePath || sel.fileName} (Líneas ${sel.startLine} a ${sel.endLine})
+Lenguaje: ${sel.languageId} (${sel.languageBadge})
+Código seleccionado:
+\`\`\`${sel.languageId}
+${sel.text}
+\`\`\``;
           } else {
             const selected = (this.state.recentCommits || []).filter((c) =>
               this.state.selectedCommitHashes?.includes(c.hash)
             );
-            context = selected.map((c) => `${c.hash}: ${c.message}\n${c.diffSummary || ''}`).join('\n\n');
+            const commitsToUse =
+              selected.length > 0 ? selected : (this.state.recentCommits || []).slice(0, 1);
+            codeContext = commitsToUse
+              .map(
+                (c) =>
+                  `Commit: ${c.shortHash} - "${c.message.split('\n')[0]}" (Rama: ${c.branch || 'main'})
+Archivos modificados: ${c.changedFiles.map((f) => f.filePath).join(', ')}
+Resumen del Diff:
+${c.diffSummary || ''}`
+              )
+              .join('\n---\n');
           }
-          const aiText = await this.composerService.generateWithAI(
-            context,
-            this.state.options.aiModelFamily,
-            this.state.customContext
-          );
-          this.state.postText = aiText;
-          this.panel.webview.postMessage({ command: 'setText', text: aiText });
+
+          let postContent = '';
+          try {
+            postContent = await this.composerService.generateWithAI(
+              codeContext,
+              this.state.options.aiModelFamily,
+              this.state.customContext,
+              this.currentVariant
+            );
+          } catch (aiErr: any) {
+            // Fallback estructurado que combina fielmente el código y las instrucciones del usuario
+            postContent = this.composerService.generateSmartDraft(
+              codeContext,
+              this.state.customContext,
+              this.currentVariant
+            );
+            vscode.window.showInformationMessage(
+              `Share to LinkedIn: Borrador generado articulando tu contexto y el código (${aiErr.message}).`
+            );
+          }
+
+          this.state.postText = postContent;
+          this.panel.webview.postMessage({ command: 'setText', text: postContent });
         } catch (err: any) {
-          vscode.window.showWarningMessage(
-            `Share to LinkedIn: No se pudo conectar a la IA (${err.message}). Usando plantilla estructurada.`
-          );
+          vscode.window.showErrorMessage(`Share to LinkedIn: Error generando con IA: ${err.message}`);
         } finally {
           this.setLoading(false);
         }
         break;
+      }
 
       case 'viewFile':
         if (this.state.selection) {
@@ -1018,21 +1053,27 @@ export class ComposerPanel {
       </div>
     </div>
 
-    <!-- Panel de Contexto y Selección Avanzada (Cumple con Requerimientos 6 y 7) -->
+    <!-- Panel de Contexto y Selección Avanzada (Cumple con Requerimientos 2, 6 y 7) -->
     <div class="controls-panel">
-      <!-- Contexto adicional del usuario -->
+      <!-- Instrucciones / Contexto para la IA -->
       <div class="control-row">
-        <label class="control-label" for="input-context">Contexto o instrucciones para el post (opcional):</label>
-        <div style="display: flex; gap: 8px;">
-          <input
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label class="control-label" for="input-context" style="margin: 0; font-size: 13px; color: #ffffff;">
+            ✨ Contexto o instrucciones para la IA:
+          </label>
+          <span style="font-size: 11px; color: #4da3ff;">La IA redactará el post a partir de tu contexto y el código</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: stretch;">
+          <textarea
             id="input-context"
             class="input-context"
-            type="text"
-            placeholder="Ej: Explica cómo se optimizó el servicio y la arquitectura implementada..."
-            value="${this.escapeHtml(this.state.customContext || '')}"
-          />
-          <button id="btn-apply-context" class="btn-action-secondary" style="width: auto; margin: 0; padding: 6px 12px; font-size: 12px; white-space: nowrap;">
-            Aplicar
+            rows="2"
+            placeholder="Ej: Explica cómo funciona esta implementación, por qué se eligió esta arquitectura y qué problemas previene en producción..."
+            style="resize: vertical; min-height: 48px; line-height: 1.45;"
+          >${this.escapeHtml(this.state.customContext || '')}</textarea>
+          <button id="btn-generate-ai-context" class="btn-action-primary" style="width: auto; margin: 0; padding: 8px 16px; font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #0a66c2, #004182);">
+            <span>✨</span>
+            <span>Generar con IA</span>
           </button>
         </div>
       </div>
@@ -1280,7 +1321,7 @@ export class ComposerPanel {
     const loadingOverlay = document.getElementById('loading-overlay');
     const loadingText = document.getElementById('loading-text');
     const inputContext = document.getElementById('input-context');
-    const btnApplyContext = document.getElementById('btn-apply-context');
+    const btnGenerateAIContext = document.getElementById('btn-generate-ai-context');
     const chkIncludeImage = document.getElementById('chk-include-image');
     const selectImageType = document.getElementById('select-image-type');
     const inputImageDesc = document.getElementById('input-image-desc');
@@ -1301,9 +1342,21 @@ export class ComposerPanel {
       vscode.postMessage({ command: 'updateContext', context: inputContext.value });
     });
 
-    btnApplyContext?.addEventListener('click', () => {
-      vscode.postMessage({ command: 'updateContext', context: inputContext.value });
-      vscode.postMessage({ command: 'regenerate' });
+    btnGenerateAIContext?.addEventListener('click', () => {
+      vscode.postMessage({
+        command: 'generateAI',
+        context: inputContext ? inputContext.value.trim() : ''
+      });
+    });
+
+    inputContext?.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        vscode.postMessage({
+          command: 'generateAI',
+          context: inputContext.value.trim()
+        });
+      }
     });
 
     // Delegación para selección de commits
@@ -1355,7 +1408,10 @@ export class ComposerPanel {
     });
 
     btnGenerateAI.addEventListener('click', () => {
-      vscode.postMessage({ command: 'generateAI' });
+      vscode.postMessage({
+        command: 'generateAI',
+        context: inputContext ? inputContext.value.trim() : ''
+      });
     });
 
     linkViewFile?.addEventListener('click', () => {

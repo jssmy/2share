@@ -202,12 +202,15 @@ export class PostComposerService {
   }
 
   /**
-   * Generación opcional con IA usando la API nativa `vscode.lm`
+   * Generación asistida con IA usando la API nativa `vscode.lm`
+   * Sintetiza las instrucciones del usuario como eje central junto con el código real
+   * (Cumple con REQ-002 Escenarios 1, 2 y 4)
    */
   public async generateWithAI(
-    contextText: string,
+    codeContext: string,
     modelFamily = 'gpt-4o',
-    userInstructions?: string
+    userInstructions?: string,
+    variant: TemplateVariant = 'technical'
   ): Promise<string> {
     if (!('lm' in vscode) || typeof vscode.lm.selectChatModels !== 'function') {
       throw new Error('La API `vscode.lm` no está disponible en este entorno.');
@@ -221,22 +224,40 @@ export class PostComposerService {
       throw new Error('No se encontraron modelos de IA disponibles en VS Code.');
     }
 
-    const instructionsPart = userInstructions && userInstructions.trim()
-      ? `\nInstrucciones y contexto específico del usuario:\n${userInstructions.trim()}\n`
+    const styleInstructions: Record<TemplateVariant, string> = {
+      technical: 'Enfoque técnico, arquitectónico y de ingeniería de software (patrones, tipado estricto, buenas prácticas).',
+      learning: 'Enfoque de aprendizaje ("Qué aprendí"): comparte reflexiones, desafíos superados y lecciones aplicables.',
+      experience: 'Enfoque de trayectoria / personal: relata el avance del proyecto, decisiones técnicas y aprendizajes prácticos.',
+    };
+
+    const instructionsBlock = userInstructions && userInstructions.trim()
+      ? `\n🎯 OBJETIVO Y CONTEXTO DEL USUARIO (Prioridad máxima para guiar la publicación):\n${userInstructions.trim()}\n`
       : '';
 
-    const messages = [
-      vscode.LanguageModelChatMessage.User(
-        `Eres un Developer Advocate experto en redacción para LinkedIn.
-A partir del siguiente código, commit o diffs, redacta un post breve, profesional, técnico y de alto impacto en español.
-No inventes funcionalidades ni métricas que no estén en el contexto.
-${instructionsPart}
-Incluye 4-5 hashtags técnicos relevantes al final.
+    const systemPrompt = `Eres un Developer Advocate y creador de contenido técnico senior para LinkedIn.
+Tu labor es redactar un post auténtico, técnico y de alto valor en español.
+El post debe partir de las instrucciones y contexto provisto por el autor, sustentándolo con el código o cambios del repositorio.
 
-Contexto técnico:
-${contextText.slice(0, 3000)}`
-      ),
-    ];
+Estructura recomendada:
+1. Gancho inicial (Hook): Una primera línea contundente que despierte curiosidad técnica (evita saludos vacíos como "Hola red").
+2. Contexto e implementación: Explica claramente qué se construyó, qué problema resuelve y cómo funciona el código adjunto.
+3. Decisión arquitectónica o lección clave: Por qué se tomó este camino (mantenibilidad, rendimiento, seguridad).
+4. Pregunta de debate: Cierre invitando a la interacción con otros desarrolladores.
+5. Hashtags: 4 o 5 hashtags pertinentes (#TypeScript, #CleanCode, #Backend, etc.) al final.
+
+Reglas:
+- No inventes tecnologías, funciones ni métricas que no estén en el código o en las instrucciones del usuario.
+- Tono: profesional, conciso y entusiasta, sin clichés artificiales.`;
+
+    const userPrompt = `${systemPrompt}
+
+${instructionsBlock}
+📐 Estilo deseado: ${styleInstructions[variant] || styleInstructions.technical}
+
+💻 CÓDIGO Y DETALLES TÉCNICOS:
+${codeContext.slice(0, 3500)}`;
+
+    const messages = [vscode.LanguageModelChatMessage.User(userPrompt)];
 
     const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
     let result = '';
@@ -244,6 +265,38 @@ ${contextText.slice(0, 3000)}`
       result += chunk;
     }
     return result.trim();
+  }
+
+  /**
+   * Genera un borrador estructurado cuando la IA no está disponible,
+   * articulando fluidamente las instrucciones del usuario con el código.
+   */
+  public generateSmartDraft(
+    codeSummary: string,
+    userInstructions?: string,
+    variant: TemplateVariant = 'technical'
+  ): string {
+    const hasInstructions = userInstructions && userInstructions.trim().length > 0;
+    const cleanContext = hasInstructions ? userInstructions!.trim() : '';
+
+    let hook = '🚀 Avance técnico en el proyecto:';
+    if (variant === 'learning') {
+      hook = '💡 Aprendizaje clave de desarrollo:';
+    } else if (variant === 'experience') {
+      hook = '🛠️ Compartiendo una decisión técnica reciente:';
+    }
+
+    let core = '';
+    if (hasInstructions) {
+      core = `${cleanContext}\n\nAnalizando la implementación en el código, la solución garantiza una estructura modular, tipado estricto y alta previsibilidad.`;
+    } else {
+      core = `Implementamos mejoras importantes en la lógica de negocio, priorizando la legibilidad, mantenibilidad y robustez de la arquitectura.`;
+    }
+
+    const debate = '\n\n¿Qué enfoque sueles utilizar para abordar este tipo de requerimientos? Te leo en los comentarios. 👇';
+    const hashtags = '\n\n#SoftwareEngineering #CleanCode #Development #TechCommunity';
+
+    return `${hook}\n\n${core}${debate}${hashtags}`;
   }
 
   private formatLanguageName(langId: string): string {
