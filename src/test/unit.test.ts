@@ -192,13 +192,28 @@ describe('Share to LinkedIn - Unit Test Suite', () => {
 
     it('debe generar borrador inteligente cuando la IA procesa instrucciones del usuario y código', () => {
       const draft = composerService.generateSmartDraft(
-        'Archivo: users.service.ts\nasync createUser() {}',
+        'Archivo: users.service.ts\nLenguaje: typescript\nasync createUser() {\n  await this.prisma.user.create();\n}',
         'Explicar por qué usamos Prisma en vez de TypeORM para evitar inconsistencias',
         'technical'
       );
       assert.ok(draft.includes('Explicar por qué usamos Prisma'));
+      assert.ok(draft.includes('users.service.ts'));
+      assert.ok(draft.includes('createUser()'));
+      assert.ok(draft.includes('Prisma'));
       assert.ok(draft.includes('Avance técnico'));
       assert.ok(draft.includes('#SoftwareEngineering'));
+    });
+
+    it('debe generar borrador inteligente en variante aprendizaje (learning) articulando contexto y código', () => {
+      const draft = composerService.generateSmartDraft(
+        'Archivo: auth.service.ts\nLenguaje: typescript\nasync validateToken() {\n  return jwt.verify();\n}',
+        'Aprendizaje sobre manejo defensivo de expiración de sesiones',
+        'learning'
+      );
+      assert.ok(draft.includes('Lección técnica clave'));
+      assert.ok(draft.includes('auth.service.ts'));
+      assert.ok(draft.includes('validateToken()'));
+      assert.ok(draft.includes('manejo defensivo'));
     });
 
     it('debe sugerir hashtags pertinentes detectando palabras clave y frameworks', () => {

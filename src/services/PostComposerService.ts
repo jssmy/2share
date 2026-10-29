@@ -204,7 +204,7 @@ export class PostComposerService {
   /**
    * Generación asistida con IA usando la API nativa `vscode.lm`
    * Sintetiza las instrucciones del usuario como eje central junto con el código real
-   * (Cumple con REQ-002 Escenarios 1, 2 y 4)
+   * (Cumple con REQ-002 Escenarios 1, 2, 4 y 5)
    */
   public async generateWithAI(
     codeContext: string,
@@ -231,72 +231,170 @@ export class PostComposerService {
     };
 
     const instructionsBlock = userInstructions && userInstructions.trim()
-      ? `\n🎯 OBJETIVO Y CONTEXTO DEL USUARIO (Prioridad máxima para guiar la publicación):\n${userInstructions.trim()}\n`
+      ? `\n🎯 OBJETIVO Y CONTEXTO DEL AUTOR (Directriz prioritaria):\n"${userInstructions.trim()}"\n*IMPORTANTE*: Redacta en primera persona como el ingeniero que creó la solución. Articula este objetivo directamente con las funciones, clases y lógica del código. No repitas la orden como un enunciado externo (ej: si el usuario pide "explica cómo funciona X", redacta "Implementé X para resolver...").\n`
       : '';
 
     const systemPrompt = `Eres un Developer Advocate y creador de contenido técnico senior para LinkedIn.
-Tu labor es redactar un post auténtico, técnico y de alto valor en español.
-El post debe partir de las instrucciones y contexto provisto por el autor, sustentándolo con el código o cambios del repositorio.
+Tu labor es redactar un post auténtico, profesional, técnico y de alto impacto en español.
+El post debe partir de las directrices del autor, sustentándolas detalladamente con el código real o cambios del repositorio.
 
-Estructura recomendada:
-1. Gancho inicial (Hook): Una primera línea contundente que despierte curiosidad técnica (evita saludos vacíos como "Hola red").
-2. Contexto e implementación: Explica claramente qué se construyó, qué problema resuelve y cómo funciona el código adjunto.
-3. Decisión arquitectónica o lección clave: Por qué se tomó este camino (mantenibilidad, rendimiento, seguridad).
-4. Pregunta de debate: Cierre invitando a la interacción con otros desarrolladores.
-5. Hashtags: 4 o 5 hashtags pertinentes (#TypeScript, #CleanCode, #Backend, etc.) al final.
+Estructura requerida:
+1. Gancho inicial (Hook): Una primera línea contundente que despierte curiosidad técnica (sin saludos genéricos como "Hola red").
+2. Contexto del reto y solución: Explica qué problema se aborda y cómo la implementación en el código lo resuelve.
+3. Detalles técnicos concretos: Cita clases, funciones, tipado o decisiones arquitectónicas presentes en el código.
+4. Lección de ingeniería o impacto: Beneficios en mantenibilidad, escalabilidad o rendimiento.
+5. Pregunta de debate: Invita a la comunidad de desarrolladores a debatir sobre el enfoque técnico.
+6. Hashtags: 4 o 5 hashtags pertinentes (#TypeScript, #CleanCode, #Backend, etc.) al final.
 
 Reglas:
-- No inventes tecnologías, funciones ni métricas que no estén en el código o en las instrucciones del usuario.
-- Tono: profesional, conciso y entusiasta, sin clichés artificiales.`;
+- No inventes tecnologías ni funciones ausentes del código o contexto.
+- Tono: Profesional, directo, entusiasta y sin clichés artificiales.`;
 
     const userPrompt = `${systemPrompt}
 
 ${instructionsBlock}
 📐 Estilo deseado: ${styleInstructions[variant] || styleInstructions.technical}
 
-💻 CÓDIGO Y DETALLES TÉCNICOS:
+💻 CÓDIGO Y DETALLES TÉCNICOS DEL REPOSITORIO:
 ${codeContext.slice(0, 3500)}`;
 
     const messages = [vscode.LanguageModelChatMessage.User(userPrompt)];
 
-    const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-    let result = '';
-    for await (const chunk of response.text) {
-      result += chunk;
+    // Timeout de seguridad de 12 segundos para evitar bloqueos
+    const cts = new vscode.CancellationTokenSource();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        cts.cancel();
+        reject(new Error('Tiempo de espera agotado para la respuesta del modelo de IA (12s).'));
+      }, 12000);
+      cts.token.onCancellationRequested(() => clearTimeout(timer));
+    });
+
+    try {
+      const response = await Promise.race([
+        model.sendRequest(messages, {}, cts.token),
+        timeoutPromise,
+      ]);
+
+      let result = '';
+      for await (const chunk of response.text) {
+        result += chunk;
+      }
+      return result.trim();
+    } finally {
+      cts.dispose();
     }
-    return result.trim();
   }
 
   /**
-   * Genera un borrador estructurado cuando la IA no está disponible,
-   * articulando fluidamente las instrucciones del usuario con el código.
+   * Genera un borrador inteligente y estructurado sintetizando fielmente las instrucciones del usuario
+   * con las entidades, clases, funciones y archivos extraídos del código real.
+   * (Cumple con REQ-002 Escenarios 3, 4 y 5)
    */
   public generateSmartDraft(
     codeSummary: string,
     userInstructions?: string,
     variant: TemplateVariant = 'technical'
   ): string {
-    const hasInstructions = userInstructions && userInstructions.trim().length > 0;
-    const cleanContext = hasInstructions ? userInstructions!.trim() : '';
+    const hasInstructions = !!(userInstructions && userInstructions.trim().length > 0);
+    const cleanInstructions = hasInstructions ? userInstructions!.trim() : '';
 
-    let hook = '🚀 Avance técnico en el proyecto:';
-    if (variant === 'learning') {
-      hook = '💡 Aprendizaje clave de desarrollo:';
-    } else if (variant === 'experience') {
-      hook = '🛠️ Compartiendo una decisión técnica reciente:';
-    }
+    // 1. Extraer metadatos del código (archivos, funciones, clases, frameworks)
+    const fileMatch = codeSummary.match(/Archivo:\s*([^\s\(\n]+)/i);
+    const fileName = fileMatch ? fileMatch[1].trim() : '';
 
-    let core = '';
+    const langMatch = codeSummary.match(/Lenguaje:\s*([^\s\(\n]+)/i);
+    const lang = langMatch ? this.formatLanguageName(langMatch[1].trim()) : 'TypeScript';
+
+    // Extraer funciones o métodos destacados
+    const methodMatches = Array.from(codeSummary.matchAll(/(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*[:{]/g))
+      .map((m) => m[1])
+      .filter((fn) => !['if', 'for', 'switch', 'catch', 'while'].includes(fn));
+    const uniqueMethods = Array.from(new Set(methodMatches)).slice(0, 3);
+    const methodsText = uniqueMethods.length > 0 ? uniqueMethods.map((m) => `\`${m}()\``).join(', ') : '';
+
+    // Extraer tecnologías y frameworks
+    const detectedTech: string[] = [];
+    const lowerSummary = codeSummary.toLowerCase();
+    if (lowerSummary.includes('prisma')) detectedTech.push('Prisma');
+    if (lowerSummary.includes('nest')) detectedTech.push('NestJS');
+    if (lowerSummary.includes('typeorm')) detectedTech.push('TypeORM');
+    if (lowerSummary.includes('docker')) detectedTech.push('Docker');
+    if (lowerSummary.includes('jwt') || lowerSummary.includes('auth')) detectedTech.push('JWT/Auth');
+    if (lowerSummary.includes('react')) detectedTech.push('React');
+    if (lowerSummary.includes('express')) detectedTech.push('Express');
+    if (lowerSummary.includes('postgres') || lowerSummary.includes('sql')) detectedTech.push('SQL');
+
+    const techString = detectedTech.length > 0 ? detectedTech.join(' y ') : lang;
+
+    // 2. Formatear la directriz del usuario en voz activa de primera persona
+    let narrativeGoal = '';
     if (hasInstructions) {
-      core = `${cleanContext}\n\nAnalizando la implementación en el código, la solución garantiza una estructura modular, tipado estricto y alta previsibilidad.`;
-    } else {
-      core = `Implementamos mejoras importantes en la lógica de negocio, priorizando la legibilidad, mantenibilidad y robustez de la arquitectura.`;
+      narrativeGoal = cleanInstructions;
+      // Normalizar prefijos de comando comunes si existen
+      const commandPrefixes = [
+        /^explicar\s+(por\s+qué\s+|cómo\s+|de\s+qué\s+trata\s+)?/i,
+        /^explica\s+(por\s+qué\s+|cómo\s+|de\s+qué\s+trata\s+)?/i,
+        /^crear\s+un\s+post\s+(sobre|de)\s+/i,
+        /^destaca(r)?\s+(que\s+|cómo\s+)?/i,
+        /^habla(r)?\s+(de|sobre)\s+/i,
+      ];
+      for (const prefix of commandPrefixes) {
+        if (prefix.test(narrativeGoal)) {
+          narrativeGoal = narrativeGoal.replace(prefix, '');
+          narrativeGoal = narrativeGoal.charAt(0).toUpperCase() + narrativeGoal.slice(1);
+          break;
+        }
+      }
     }
 
-    const debate = '\n\n¿Qué enfoque sueles utilizar para abordar este tipo de requerimientos? Te leo en los comentarios. 👇';
-    const hashtags = '\n\n#SoftwareEngineering #CleanCode #Development #TechCommunity';
+    // 3. Estructurar el Hook según variante
+    let hook = '';
+    if (variant === 'learning') {
+      hook = hasInstructions
+        ? `💡 Lección técnica clave: ${narrativeGoal.slice(0, 80)}${narrativeGoal.length > 80 ? '...' : ''}`
+        : `💡 Aprendizaje técnico clave trabajando con ${techString}:`;
+    } else if (variant === 'experience') {
+      hook = hasInstructions
+        ? `🛠️ Compartiendo una decisión técnica reciente: ${narrativeGoal.slice(0, 80)}${narrativeGoal.length > 80 ? '...' : ''}`
+        : `🛠️ Compartiendo el avance de implementación en ${fileName || 'el proyecto'}:`;
+    } else {
+      hook = hasInstructions
+        ? `🚀 Avance técnico en el proyecto: ${cleanInstructions.slice(0, 90)}${cleanInstructions.length > 90 ? '...' : ''}`
+        : `🚀 Optimizando la arquitectura técnica: implementación en ${fileName || 'el repositorio'}`;
+    }
 
-    return `${hook}\n\n${core}${debate}${hashtags}`;
+    // 4. Desarrollo central articulando instrucciones del usuario con el código
+    let body = '';
+    if (hasInstructions) {
+      body = `${cleanInstructions}\n\n` +
+        `En el código de ${fileName ? `\`${fileName}\`` : 'este módulo'}${methodsText ? ` (${methodsText})` : ''}, estructuramos la lógica utilizando ${techString}. Este enfoque garantiza tipado estricto, separación de responsabilidades y un flujo predecible en producción.`;
+    } else {
+      body = `Implementamos mejoras importantes en la lógica de negocio en ${fileName ? `\`${fileName}\`` : 'el proyecto'}${methodsText ? ` (${methodsText})` : ''} utilizando ${techString}, priorizando la legibilidad, mantenibilidad y robustez de la arquitectura.`;
+    }
+
+    // 5. Aprendizaje / Impacto de ingeniería
+    let takeaway = '';
+    if (variant === 'learning') {
+      takeaway = '\n\nReflexión de ingeniería: La modularización temprana y las abstracciones bien delimitadas ahorran horas de refactorización cuando el sistema escala.';
+    } else if (variant === 'experience') {
+      takeaway = '\n\nCada iteración técnica es una oportunidad para elevar los estándares del código y simplificar la vida del equipo en el largo plazo.';
+    } else {
+      takeaway = '\n\nBuenas prácticas como el desacoplamiento de dependencias y el tipado riguroso previenen fallos silenciosos y facilitan la cobertura de pruebas.';
+    }
+
+    // 6. Cierre con llamada al debate
+    const debate = '\n\n¿Qué enfoque o patrones sueles utilizar en tu stack para abordar este tipo de requerimientos? Te leo en los comentarios. 👇';
+
+    // 7. Hashtags enriquecidos
+    const dynamicTags = this.suggestHashtags(
+      langMatch ? langMatch[1].trim() : 'typescript',
+      fileName || 'project.ts',
+      codeSummary + ' ' + cleanInstructions
+    );
+    const hashtags = `\n\n${dynamicTags.join(' ')}`;
+
+    return `${hook}\n\n${body}${takeaway}${debate}${hashtags}`;
   }
 
   private formatLanguageName(langId: string): string {

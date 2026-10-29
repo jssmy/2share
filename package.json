@@ -2,7 +2,7 @@
   "name": "share-to-linkedin",
   "displayName": "Share to LinkedIn",
   "description": "Comparte fragmentos de código, commits y actualizaciones técnicas directamente en LinkedIn desde VS Code.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "jssmy",
   "engines": {
     "vscode": "^1.90.0"
@@ -176,7 +176,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "test": "node -r ./test-setup.js --test out/test/**/*.test.js"
+    "test": "node -r ./test-setup.js --test out/test/unit.test.js"
   },
   "dependencies": {
     "shiki": "^1.6.0"

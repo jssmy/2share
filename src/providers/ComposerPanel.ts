@@ -291,6 +291,14 @@ export class ComposerPanel {
         }
 
         try {
+          // Refrescar selección de editor activo si existe
+          if (this.state.activeTab === 'selection') {
+            const activeSel = this.selectionService.getEditorSelection();
+            if (activeSel) {
+              this.state.selection = activeSel;
+            }
+          }
+
           let codeContext = '';
           if (this.state.activeTab === 'selection') {
             const sel = this.state.selection || this.selectionService.getEditorSelectionOrSample();
@@ -339,10 +347,13 @@ ${c.diffSummary || ''}`
 
           this.state.postText = postContent;
           this.panel.webview.postMessage({ command: 'setText', text: postContent });
+          this.panel.webview.postMessage({ command: 'postGenerated', text: postContent });
+          vscode.window.showInformationMessage('✨ ¡Publicación redactada exitosamente a partir de tu contexto y el código!');
         } catch (err: any) {
           vscode.window.showErrorMessage(`Share to LinkedIn: Error generando con IA: ${err.message}`);
         } finally {
           this.setLoading(false);
+          this.panel.webview.postMessage({ command: 'resetAIGeneratingState' });
         }
         break;
       }
@@ -498,7 +509,7 @@ ${c.diffSummary || ''}`
       badge: badgeText,
       startLine: isSelection && sel ? sel.startLine : 1,
       code: snippetCode,
-    });
+    }).replace(/<\/script>/gi, '<\\/script>');
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -972,6 +983,25 @@ ${c.diffSummary || ''}`
       animation: spin 0.8s linear infinite;
       margin-bottom: 10px;
     }
+    .btn-spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.6s linear infinite;
+      margin-right: 4px;
+    }
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 0 0 rgba(10, 102, 194, 0.7); }
+      50% { box-shadow: 0 0 0 10px rgba(10, 102, 194, 0.3); }
+      100% { box-shadow: 0 0 0 0 rgba(10, 102, 194, 0); }
+    }
+    .post-updated-glow {
+      animation: pulseGlow 1.8s ease-out;
+      border-color: #0a66c2 !important;
+    }
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -1071,11 +1101,12 @@ ${c.diffSummary || ''}`
             placeholder="Ej: Explica cómo funciona esta implementación, por qué se eligió esta arquitectura y qué problemas previene en producción..."
             style="resize: vertical; min-height: 48px; line-height: 1.45;"
           >${this.escapeHtml(this.state.customContext || '')}</textarea>
-          <button id="btn-generate-ai-context" class="btn-action-primary" style="width: auto; margin: 0; padding: 8px 16px; font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #0a66c2, #004182);">
-            <span>✨</span>
-            <span>Generar con IA</span>
+          <button id="btn-generate-ai-context" type="button" class="btn-action-primary" style="width: auto; margin: 0; padding: 8px 16px; font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #0a66c2, #004182); cursor: pointer;">
+            <span id="btn-ai-icon">✨</span>
+            <span id="btn-ai-label">Generar con IA</span>
           </button>
         </div>
+        <div id="ai-status-msg" style="margin-top: 6px; font-size: 12px; display: none;"></div>
       </div>
 
       <!-- Si la pestaña activa es commits: selección de múltiples commits y archivos -->
@@ -1191,6 +1222,16 @@ ${c.diffSummary || ''}`
     const vscode = acquireVsCodeApi();
     window._snippetData = ${snippetDataJson};
 
+    function drawRound(c, x, y, w, h, r) {
+      if (typeof c.roundRect === 'function') {
+        try {
+          c.roundRect(x, y, w, h, r);
+          return;
+        } catch (_) {}
+      }
+      c.rect(x, y, w, h);
+    }
+
     function generateCardPng(targetCanvas) {
       const canvas = targetCanvas || document.createElement('canvas');
       const scale = 2;
@@ -1200,7 +1241,7 @@ ${c.diffSummary || ''}`
       const lineHeight = 22;
 
       const rawText = (window._snippetData && window._snippetData.code) || 'console.log("Hello, LinkedIn!");';
-      const lines = rawText.split('\\n').slice(0, 20);
+      const lines = (rawText || '').split(/\r?\n/).slice(0, 20);
       const contentHeight = Math.max(lines.length * lineHeight, 80);
       const height = headerHeight + contentHeight + padding * 2 + 20;
 
@@ -1231,7 +1272,7 @@ ${c.diffSummary || ''}`
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(cardX, cardY, cardW, cardH, radius);
+      drawRound(ctx, cardX, cardY, cardW, cardH, radius);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
@@ -1239,7 +1280,7 @@ ${c.diffSummary || ''}`
       // Barra superior estilo macOS
       ctx.fillStyle = '#14171d';
       ctx.beginPath();
-      ctx.roundRect(cardX, cardY, cardW, headerHeight, [radius, radius, 0, 0]);
+      drawRound(ctx, cardX, cardY, cardW, headerHeight, [radius, radius, 0, 0]);
       ctx.fill();
 
       // Botones ventana (rojo, amarillo, verde)
@@ -1257,7 +1298,7 @@ ${c.diffSummary || ''}`
       // Insignia del lenguaje
       ctx.fillStyle = '#0a66c2';
       ctx.beginPath();
-      ctx.roundRect(cardX + cardW - 55, cardY + 12, 38, 20, 4);
+      drawRound(ctx, cardX + cardW - 55, cardY + 12, 38, 20, 4);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 11px sans-serif';
@@ -1275,12 +1316,12 @@ ${c.diffSummary || ''}`
         ctx.fillStyle = '#5c6370';
         ctx.fillText(String(startLine + i).padStart(2, ' '), cardX + 16, y);
 
-        const clean = line.replace(/\\t/g, '  ');
+        const clean = line.split('\t').join('  ');
         if (clean.trim().startsWith('//') || clean.trim().startsWith('#')) {
           ctx.fillStyle = '#616e88';
-        } else if (clean.match(/\\b(import|export|from|class|const|let|var|function|async|await|return|if|else)\\b/)) {
+        } else if (clean.match(/\b(import|export|from|class|const|let|var|function|async|await|return|if|else)\b/)) {
           ctx.fillStyle = '#81a1c1';
-        } else if (clean.match(/['"\`].*?['"\`]/)) {
+        } else if (clean.includes('"') || clean.includes("'")) {
           ctx.fillStyle = '#a3be8c';
         } else {
           ctx.fillStyle = '#e1e4ea';
@@ -1322,11 +1363,39 @@ ${c.diffSummary || ''}`
     const loadingText = document.getElementById('loading-text');
     const inputContext = document.getElementById('input-context');
     const btnGenerateAIContext = document.getElementById('btn-generate-ai-context');
+    const btnAiIcon = document.getElementById('btn-ai-icon');
+    const btnAiLabel = document.getElementById('btn-ai-label');
+    const aiStatusMsg = document.getElementById('ai-status-msg');
     const chkIncludeImage = document.getElementById('chk-include-image');
     const selectImageType = document.getElementById('select-image-type');
     const inputImageDesc = document.getElementById('input-image-desc');
 
-    postText.addEventListener('input', () => {
+    function triggerAIGeneration() {
+      const contextVal = inputContext ? inputContext.value.trim() : '';
+
+      // Feedback visual inmediato en el botón
+      if (btnGenerateAIContext) {
+        btnGenerateAIContext.disabled = true;
+        btnGenerateAIContext.style.opacity = '0.75';
+        if (btnAiIcon) btnAiIcon.innerHTML = '<span class="btn-spinner"></span>';
+        if (btnAiLabel) btnAiLabel.innerText = 'Generando con IA...';
+      }
+      if (btnGenerateAI) {
+        btnGenerateAI.disabled = true;
+      }
+
+      if (aiStatusMsg) {
+        aiStatusMsg.style.display = 'block';
+        aiStatusMsg.innerHTML = '<span style="color: #4da3ff;">✨ Analizando tu contexto y el código con IA...</span>';
+      }
+
+      vscode.postMessage({
+        command: 'generateAI',
+        context: contextVal
+      });
+    }
+
+    postText?.addEventListener('input', () => {
       vscode.postMessage({ command: 'updateText', text: postText.value });
     });
 
@@ -1342,20 +1411,20 @@ ${c.diffSummary || ''}`
       vscode.postMessage({ command: 'updateContext', context: inputContext.value });
     });
 
-    btnGenerateAIContext?.addEventListener('click', () => {
-      vscode.postMessage({
-        command: 'generateAI',
-        context: inputContext ? inputContext.value.trim() : ''
-      });
+    btnGenerateAIContext?.addEventListener('click', (e) => {
+      e.preventDefault();
+      triggerAIGeneration();
+    });
+
+    btnGenerateAI?.addEventListener('click', (e) => {
+      e.preventDefault();
+      triggerAIGeneration();
     });
 
     inputContext?.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        vscode.postMessage({
-          command: 'generateAI',
-          context: inputContext.value.trim()
-        });
+        triggerAIGeneration();
       }
     });
 
@@ -1399,7 +1468,7 @@ ${c.diffSummary || ''}`
       });
     });
 
-    variantSelect.addEventListener('change', () => {
+    variantSelect?.addEventListener('change', () => {
       vscode.postMessage({ command: 'changeVariant', variant: variantSelect.value });
     });
 
@@ -1407,18 +1476,11 @@ ${c.diffSummary || ''}`
       vscode.postMessage({ command: 'regenerate' });
     });
 
-    btnGenerateAI.addEventListener('click', () => {
-      vscode.postMessage({
-        command: 'generateAI',
-        context: inputContext ? inputContext.value.trim() : ''
-      });
-    });
-
     linkViewFile?.addEventListener('click', () => {
       vscode.postMessage({ command: 'viewFile' });
     });
 
-    btnPublish.addEventListener('click', () => {
+    btnPublish?.addEventListener('click', () => {
       let imageBase64 = null;
       if (chkIncludeImage && chkIncludeImage.checked) {
         try {
@@ -1434,26 +1496,71 @@ ${c.diffSummary || ''}`
       });
     });
 
-    btnCopy.addEventListener('click', () => {
+    btnCopy?.addEventListener('click', () => {
       vscode.postMessage({ command: 'copyToClipboard', text: postText.value });
     });
 
-    btnCancel.addEventListener('click', () => {
+    btnCancel?.addEventListener('click', () => {
       vscode.postMessage({ command: 'close' });
     });
 
-    btnHeaderSettings.addEventListener('click', () => {
+    btnHeaderSettings?.addEventListener('click', () => {
       vscode.postMessage({ command: 'openSettings' });
     });
 
-    btnHeaderClose.addEventListener('click', () => {
+    btnHeaderClose?.addEventListener('click', () => {
       vscode.postMessage({ command: 'close' });
     });
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (msg.command === 'setText') {
-        postText.value = msg.text;
+      if (msg.command === 'setText' || msg.command === 'postGenerated') {
+        if (postText) {
+          postText.value = msg.text || '';
+          postText.dispatchEvent(new Event('input'));
+        }
+
+        // Resaltar la tarjeta de vista previa con animación de pulso
+        const card = document.querySelector('.linkedin-card');
+        if (card) {
+          card.classList.remove('post-updated-glow');
+          void card.offsetWidth;
+          card.classList.add('post-updated-glow');
+        }
+
+        // Scroll suave hacia la vista previa del post para que el usuario lo vea
+        if (postText) {
+          postText.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // Restaurar estado del botón
+        if (btnGenerateAIContext) {
+          btnGenerateAIContext.disabled = false;
+          btnGenerateAIContext.style.opacity = '1';
+          if (btnAiIcon) btnAiIcon.innerHTML = '✨';
+          if (btnAiLabel) btnAiLabel.innerText = 'Generar con IA';
+        }
+        if (btnGenerateAI) {
+          btnGenerateAI.disabled = false;
+        }
+
+        if (aiStatusMsg) {
+          aiStatusMsg.style.display = 'block';
+          aiStatusMsg.innerHTML = '<span style="color: #4ade80; font-weight: 600;">✓ ¡Publicación redactada exitosamente con IA!</span>';
+          setTimeout(() => {
+            if (aiStatusMsg) aiStatusMsg.style.display = 'none';
+          }, 4500);
+        }
+      } else if (msg.command === 'resetAIGeneratingState') {
+        if (btnGenerateAIContext) {
+          btnGenerateAIContext.disabled = false;
+          btnGenerateAIContext.style.opacity = '1';
+          if (btnAiIcon) btnAiIcon.innerHTML = '✨';
+          if (btnAiLabel) btnAiLabel.innerText = 'Generar con IA';
+        }
+        if (btnGenerateAI) {
+          btnGenerateAI.disabled = false;
+        }
       } else if (msg.command === 'setLoading') {
         if (msg.loading) {
           loadingText.innerText = msg.text || 'Cargando...';
